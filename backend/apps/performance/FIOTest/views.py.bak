@@ -1,0 +1,495 @@
+import json
+import uuid
+import threading
+import time
+import logging
+import asyncio
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
+from channels.generic.websocket import AsyncWebsocketConsumer
+import paramiko
+
+logger = logging.getLogger(__name__)
+
+# 全局存储活动测试
+active_tests = {}
+test_results = {}
+active_tests_lock = threading.Lock()
+
+# 存储 consumer 引用
+fio_consumers = {}
+
+
+def ssh_connect(host, username, password, timeout=10):
+    """SSH 连接"""
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(host, username=username, password=password, timeout=timeout)
+        return ssh, None
+    except Exception as e:
+        return None, str(e)
+
+
+def parse_fio_output(output):
+    """解析 FIO 输出"""
+    stats = {
+        'iops': 0,
+        'bw': 0,
+        'latency': 0,
+        'clat': 0,
+        'clat_percentile': {},
+    }
+
+    try:
+        # 提取 IOPS
+        iops_match = output.get('iops', 0)
+        if isinstance(iops_match, str):
+            import re
+            iops_match = re.search(r'iops=\s*([\d.]+)', output)
+            if iops_match:
+                stats['iops'] = float(iops_match.group(1))
+
+        # 提取带宽
+        bw_match = output.get('bw', 0)
+        if isinstance(bw_match, str):
+            import re
+            bw_match = re.search(r'bw=\s*([\d.]+)([KMG])iB/s', output)
+            if bw_match:
+                val = float(bw_match.group(1))
+                unit = bw_match.group(2)
+                if unit == 'K':
+                    stats['bw'] = val / 1024
+                elif unit == 'M':
+                    stats['bw'] = val
+                elif unit == 'G':
+                    stats['bw'] = val * 1024
+    except Exception:
+        pass
+
+    return stats
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def validate_hosts(request):
+    """验证主机连接"""
+    data = json.loads(request.body)
+    hosts = data.get('hosts', [])
+    username = data.get('username', 'root')
+    password = data.get('password', '')
+
+    results = []
+
+    for host in hosts:
+        ssh, error = ssh_connect(host, username, password)
+        if ssh:
+            # 检查 FIO 是否安装
+            stdin, stdout, stderr = ssh.exec_command("which fio")
+            has_fio = stdout.read().decode().strip() != ''
+
+            results.append({
+                'host': host,
+                'status': 'success' if has_fio else 'warning',
+                'message': '连接成功' + ('，FIO 已安装' if has_fio else '，FIO 未安装'),
+                'has_fio': has_fio
+            })
+            ssh.close()
+        else:
+            results.append({
+                'host': host,
+                'status': 'error',
+                'message': error or '连接失败'
+            })
+
+    return JsonResponse({'status': 'success', 'results': results})
+
+
+def generate_fio_config(params):
+    """生成 FIO 配置文件"""
+    config = f"""[global]
+ioengine=libaio
+direct=1
+rw={params.get('rw', 'randrw')}
+bs={params.get('bs', '4k')}
+size={params.get('size', '1G')}
+iodepth={params.get('iodepth', 64)}
+numjobs={params.get('numjobs', 4)}
+time_based=1
+runtime={params.get('runtime', 60)}
+group_reporting=1
+"""
+
+    if params.get('rw') == 'randrw':
+        config += f"rwmixread={params.get('rwmixread', 70)}\n"
+
+    return config
+
+
+def _send_to_consumer(task_id, message):
+    """发送消息到 WebSocket consumer"""
+    with active_tests_lock:
+        if task_id not in active_tests:
+            return
+        consumer = active_tests[task_id].get('consumer')
+
+    if consumer:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(
+                consumer.send(text_data=json.dumps(message))
+            )
+            loop.close()
+        except Exception as e:
+            logger.error(f"Send to consumer error: {e}")
+
+
+def run_fio_test(task_id, host, username, password, params):
+    """运行 FIO 测试（后台线程）"""
+    _send_to_consumer(task_id, {
+        'type': 'output',
+        'data': f'[{host}] 正在连接...\n'
+    })
+
+    ssh, error = ssh_connect(host, username, password)
+    if not ssh:
+        with active_tests_lock:
+            active_tests[task_id]['status'] = 'error'
+            active_tests[task_id]['error'] = error
+        _send_to_consumer(task_id, {
+            'type': 'output',
+            'data': f'[{host}] 连接失败: {error}\n'
+        })
+        return
+
+    with active_tests_lock:
+        active_tests[task_id]['status'] = 'running'
+
+    _send_to_consumer(task_id, {
+        'type': 'output',
+        'data': f'[{host}] 连接成功，开始测试...\n'
+    })
+
+    # 生成 FIO 命令
+    ioengine = params.get('ioengine', 'libaio')
+    filename = params.get('filename', '/dev/sdb')
+    pool = params.get('pool', 'pool-rbdtest1')
+    rw = params.get('rw', 'randread')
+    bs = params.get('bs', '4k')
+    iodepth = params.get('iodepth', 64)
+    numjobs = params.get('numjobs', 4)
+    runtime = params.get('runtime', 60)
+    size = params.get('size', '100G')
+    cpus_allowed = params.get('cpus_allowed', '')
+
+    # 构建 FIO 命令
+    if ioengine == 'rbd':
+        cmd = f'fio --direct=1 --ioengine=rbd --pool={pool} --rbdname={filename}'
+    else:
+        cmd = f'fio --direct=1 --filename={filename} --ioengine=libaio'
+
+    cmd += f' --iodepth={iodepth} --numjobs={numjobs} --rw={rw} --bs={bs}'
+    cmd += f' --group_reporting --name=mytest --size={size}'
+    cmd += f' --status-interval=1'  # 每秒输出一次状态
+
+    if runtime:
+        cmd += f' --runtime={runtime} --time_based'
+
+    if cpus_allowed and cpus_allowed.strip():
+        cmd += f' --cpus_allowed={cpus_allowed} --cpus_allowed_policy=split'
+
+    # 输出命令
+    _send_to_consumer(task_id, {
+        'type': 'output',
+        'data': f'[{host}] 执行命令: {cmd}\n'
+    })
+
+    output_lines = []
+    test_stats = {
+        'iops': 0,
+        'bw_mb': 0,
+        'latency_us': 0,
+        'cpu_util': 0,
+    }
+
+    # 启动 FIO
+    channel = ssh.get_transport().open_session()
+    channel.settimeout(0.0)
+    channel.exec_command(cmd)
+
+    start_time = time.time()
+    timeout = int(runtime) + 30
+
+    try:
+        while time.time() - start_time < timeout:
+            with active_tests_lock:
+                if task_id not in active_tests or active_tests[task_id].get('stop'):
+                    break
+
+            if channel.recv_ready():
+                output = channel.recv(4096).decode('utf-8', errors='ignore')
+                if output:
+                    output_lines.append(output)
+
+                    # 实时推送输出到前端（包含主机信息）
+                    _send_to_consumer(task_id, {
+                        'type': 'output',
+                        'data': output,
+                        'host': host
+                    })
+
+                    # 解析实时输出
+                    try:
+                        import re
+                        # 提取 iops
+                        iops_match = re.search(r'iops=\s*([\d.]+)', output)
+                        if iops_match:
+                            test_stats['iops'] = float(iops_match.group(1))
+
+                        # 提取带宽
+                        bw_match = re.search(r'bw=([\d.]+)([KMG])iB/s', output)
+                        if bw_match:
+                            val = float(bw_match.group(1))
+                            unit = bw_match.group(2)
+                            if unit == 'M':
+                                test_stats['bw_mb'] = val
+                            elif unit == 'K':
+                                test_stats['bw_mb'] = val / 1024
+                            elif unit == 'G':
+                                test_stats['bw_mb'] = val * 1024
+
+                        # 提取延迟
+                        lat_match = re.search(r'lat\s*\((?:us|avg)\)=\s*([\d.]+)', output)
+                        if lat_match:
+                            test_stats['latency_us'] = float(lat_match.group(1))
+
+                        # 更新统计数据
+                        with active_tests_lock:
+                            active_tests[task_id]['stats'] = test_stats.copy()
+
+                        # 推送统计数据
+                        _send_to_consumer(task_id, {
+                            'type': 'stats',
+                            'stats': test_stats.copy()
+                        })
+                    except Exception:
+                        pass
+
+            # 检查是否完成
+            if channel.exit_status_ready():
+                break
+
+            time.sleep(0.1)
+
+    except Exception as e:
+        with active_tests_lock:
+            active_tests[task_id]['error'] = str(e)
+        _send_to_consumer(task_id, {
+            'type': 'output',
+            'data': f'[{host}] 错误: {str(e)}\n'
+        })
+
+    # 清理
+    channel.close()
+    ssh.close()
+
+    with active_tests_lock:
+        active_tests[task_id]['status'] = 'completed'
+        active_tests[task_id]['output'] = output_lines
+        active_tests[task_id]['stats'] = test_stats
+        active_tests[task_id]['completed_at'] = time.time()
+
+    _send_to_consumer(task_id, {
+        'type': 'output',
+        'data': f'[{host}] 测试完成\n'
+    })
+
+    _send_to_consumer(task_id, {
+        'type': 'completed',
+        'stats': test_stats
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def start_test(request):
+    """开始 FIO 测试"""
+    data = json.loads(request.body)
+    hosts = data.get('hosts', [])
+    username = data.get('username', 'root')
+    password = data.get('password', '')
+    test_params = data.get('params', {})
+
+    if not hosts:
+        return JsonResponse({'status': 'error', 'error': '请添加至少一台主机'}, status=400)
+
+    task_id = str(uuid.uuid4())
+
+    # 创建测试任务
+    active_tests[task_id] = {
+        'id': task_id,
+        'hosts': hosts,
+        'status': 'starting',
+        'output': [],
+        'stats': {},
+        'stop': False,
+        'start_time': time.time(),
+    }
+
+    # 为每个主机启动测试线程
+    for i, host in enumerate(hosts):
+        thread_params = test_params.copy()
+        thread_params['size'] = test_params.get('size', f'{1 << (30 - i)}')  # 差异化文件大小
+
+        thread = threading.Thread(
+            target=run_fio_test,
+            args=(task_id, host, username, password, thread_params)
+        )
+        thread.daemon = True
+        thread.start()
+
+    return JsonResponse({
+        'status': 'success',
+        'task_id': task_id,
+        'message': f'已在 {len(hosts)} 台主机启动测试'
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def stop_test(request):
+    """停止测试"""
+    data = json.loads(request.body)
+    task_id = data.get('task_id')
+
+    if task_id and task_id in active_tests:
+        active_tests[task_id]['stop'] = True
+        active_tests[task_id]['status'] = 'stopped'
+        return JsonResponse({'status': 'success'})
+
+    return JsonResponse({'status': 'error', 'error': '任务不存在'}, status=404)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def get_output(request):
+    """获取测试输出"""
+    task_id = request.GET.get('task_id')
+
+    if not task_id or task_id not in active_tests:
+        return JsonResponse({'status': 'error', 'error': '任务不存在'}, status=404)
+
+    test = active_tests[task_id]
+
+    return JsonResponse({
+        'status': test['status'],
+        'output': test.get('output', []),
+        'stats': test.get('stats', {}),
+        'elapsed': time.time() - test.get('start_time', time.time()),
+    })
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def get_results(request):
+    """获取测试结果"""
+    task_id = request.GET.get('task_id')
+
+    if not task_id or task_id not in active_tests:
+        return JsonResponse({'status': 'error', 'error': '任务不存在'}, status=404)
+
+    test = active_tests[task_id]
+
+    return JsonResponse({
+        'status': test['status'],
+        'stats': test.get('stats', {}),
+        'elapsed': time.time() - test.get('start_time', time.time()),
+    })
+
+
+class FIOTestConsumer(AsyncWebsocketConsumer):
+    """WebSocket consumer for FIO test real-time output"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.client_id = None
+        self.task_id = None
+
+    async def connect(self):
+        self.client_id = str(uuid.uuid4())
+        fio_consumers[self.client_id] = self
+        await self.accept()
+        logger.info(f"FIO WebSocket connected: {self.client_id}")
+
+    async def disconnect(self, close_code):
+        logger.info(f"FIO WebSocket disconnected: {self.client_id}")
+        fio_consumers.pop(self.client_id, None)
+
+        # 清理任务中的 consumer 引用
+        if self.task_id:
+            with active_tests_lock:
+                if self.task_id in active_tests:
+                    active_tests[self.task_id].pop('consumer', None)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+            action = data.get('action')
+
+            if action == 'join':
+                await self.handle_join(data)
+            elif action == 'stop':
+                await self.handle_stop(data)
+
+        except json.JSONDecodeError:
+            await self.send(text_data=json.dumps({'type': 'error', 'error': 'Invalid JSON'}))
+        except Exception as e:
+            logger.error(f"WebSocket receive error: {e}")
+            await self.send(text_data=json.dumps({'type': 'error', 'error': str(e)}))
+
+    async def handle_join(self, data):
+        """加入测试任务，接收实时输出"""
+        task_id = data.get('task_id')
+
+        if not task_id:
+            await self.send(text_data=json.dumps({
+                'type': 'error',
+                'error': '缺少 task_id'
+            }))
+            return
+
+        # 检查任务是否存在
+        with active_tests_lock:
+            if task_id in active_tests:
+                self.task_id = task_id
+                active_tests[task_id]['consumer'] = self
+                logger.info(f"WebSocket joined FIO task: {task_id}")
+
+                # 发送确认
+                await self.send(text_data=json.dumps({
+                    'type': 'joined',
+                    'task_id': task_id
+                }))
+            else:
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'error': '任务不存在'
+                }))
+
+    async def handle_stop(self, data):
+        """停止测试"""
+        task_id = data.get('task_id')
+
+        if task_id:
+            with active_tests_lock:
+                if task_id in active_tests:
+                    active_tests[task_id]['stop'] = True
+                    active_tests[task_id]['status'] = 'stopped'
+
+            await self.send(text_data=json.dumps({
+                'type': 'stopped',
+                'task_id': task_id
+            }))
+

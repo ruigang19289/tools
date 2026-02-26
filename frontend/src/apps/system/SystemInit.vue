@@ -1,0 +1,808 @@
+<template>
+  <div class="init-page">
+    <PageHeader
+      icon="⚙️"
+      title="系统初始化"
+    />
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- First Column: Host Config & Security -->
+      <div class="left-panel">
+        <!-- Host Config -->
+        <div class="section">
+          <h2 class="section-title">主机配置</h2>
+
+          <div class="form-group">
+            <label>远程主机 (每行一个):</label>
+            <textarea
+              v-model="hostsText"
+              rows="3"
+              placeholder="192.168.1.1&#10;192.168.1.2&#10;192.168.1.3"
+            ></textarea>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>端口:</label>
+              <input type="number" v-model="port" placeholder="22">
+            </div>
+            <div class="form-group">
+              <label>用户名:</label>
+              <input type="text" v-model="username" placeholder="root">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>密码:</label>
+            <input type="password" v-model="password" placeholder="******">
+          </div>
+        </div>
+
+        <!-- Security Config -->
+        <div class="section">
+          <h2 class="section-title">安全加固</h2>
+          <div class="checkbox-grid">
+            <label class="checkbox-item">
+              <input type="checkbox" v-model="config.hardenEtcd">
+              <span>Etcd (2379, 2380)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" v-model="config.hardenPostgresql">
+              <span>PostgreSQL (5432, 5433)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" v-model="config.hardenElasticsearch">
+              <span>Elasticsearch (9200)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" v-model="config.hardenChronyd">
+              <span>Chronyd (123)</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>自定义封禁端口:</label>
+            <input type="text" v-model="config.blockPorts" placeholder="例如: 80,443,8080">
+            <small>多个端口用逗号分隔</small>
+          </div>
+          <div class="form-group">
+            <label>管理网络 CIDR:</label>
+            <input type="text" v-model="config.managementCidr" placeholder="10.255.0.0/24">
+          </div>
+        </div>
+      </div>
+
+      <!-- Second Column: Hostname & NTP & Actions -->
+      <div class="middle-panel">
+        <!-- Hostname Config -->
+        <div class="section">
+          <h2 class="section-title">主机名配置</h2>
+          <div class="form-group">
+            <label>主机名列表:</label>
+            <textarea
+              v-model="hostnamesText"
+              rows="3"
+              placeholder="node01&#10;node02&#10;node03"
+            ></textarea>
+            <small>每行一个主机名</small>
+          </div>
+        </div>
+
+        <!-- NTP Config -->
+        <div class="section">
+          <h2 class="section-title">NTP 配置</h2>
+          <div class="form-group">
+            <label>NTP 服务器:</label>
+            <textarea
+              v-model="config.ntpServers"
+              rows="2"
+              placeholder="ntp.aliyun.com&#10;ntp1.aliyun.com"
+            ></textarea>
+            <small>每行一个服务器，第一个为首选</small>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="section actions-section">
+          <button
+            class="btn btn-primary btn-full"
+            @click="executeFullInit"
+            :disabled="!canStart || isRunning"
+          >
+            {{ isRunning ? '执行中...' : '全部初始化' }}
+          </button>
+
+          <div class="quick-actions">
+            <button class="btn btn-secondary" @click="modifyHostnames" :disabled="!canStartSingle">
+              修改主机名
+            </button>
+            <button class="btn btn-secondary" @click="configureNtpSync" :disabled="!canStartSingle">
+              时钟同步
+            </button>
+            <button class="btn btn-secondary" @click="configureSshPasswordless" :disabled="!canStartSingle">
+              SSH免密
+            </button>
+            <button class="btn btn-secondary" @click="configureFirewall" :disabled="!canStartSingle">
+              防火墙
+            </button>
+            <button class="btn btn-secondary" @click="applySecurityHardening" :disabled="!canStartSingle">
+              安全加固
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Third Column: Terminal Output -->
+      <div class="right-panel">
+        <!-- Terminal Output -->
+        <div class="section terminal-section">
+          <h2 class="section-title">终端输出</h2>
+          <div class="terminal-window">
+            <div v-if="logs.length === 0" class="terminal-empty">
+              等待执行命令...
+            </div>
+            <div v-for="(log, idx) in logs" :key="idx" :class="['log-line', log.type]">
+              <span class="time">[{{ log.time }}]</span>
+              <span class="msg">{{ log.message }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div v-if="results.length > 0" class="section results-section">
+          <h2 class="section-title">执行结果</h2>
+          <div class="results-list">
+            <div v-for="(result, idx) in results" :key="idx" :class="['result-item', result.success ? 'success' : 'error']">
+              {{ result.ip }}：{{ result.success ? result.taskName + '已完成' : '执行失败' }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification -->
+    <div class="notification" :class="notification.type" v-if="notification.show">
+      {{ notification.message }}
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, computed, nextTick } from 'vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+
+const API_BASE = `/api/v1/system/system-init`
+
+// Form data
+const hostsText = ref('')
+const port = ref(22)
+const username = ref('')
+const password = ref('')
+const hostnamesText = ref('')
+
+// Config
+const config = reactive({
+  ntpServers: 'ntp.aliyun.com',
+  managementCidr: '10.255.0.0/24',
+  hardenEtcd: true,
+  hardenPostgresql: true,
+  hardenElasticsearch: true,
+  hardenChronyd: false,
+  blockPorts: ''
+})
+
+// State
+const isRunning = ref(false)
+const logs = ref([])
+const results = ref([])
+
+// Notification
+const notification = reactive({
+  show: false,
+  message: '',
+  type: 'info'
+})
+
+// Computed
+const canStart = computed(() => {
+  return hostsText.value.trim() && username.value.trim() && password.value && hostnamesText.value.trim()
+})
+
+const canStartSingle = computed(() => {
+  return hostsText.value.trim() && username.value.trim() && password.value
+})
+
+// Methods
+const getValidHosts = () => {
+  return hostsText.value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line)
+    .map(ip => ({
+      ip,
+      username: username.value || 'root',
+      password: password.value,
+      port: port.value
+    }))
+}
+
+const getValidHostnames = () => {
+  return hostnamesText.value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line)
+}
+
+const showNotification = (message, type = 'info') => {
+  notification.message = message
+  notification.type = type
+  notification.show = true
+  setTimeout(() => {
+    notification.show = false
+  }, 3000)
+}
+
+const addLog = (message, type = 'info') => {
+  const now = new Date()
+  const time = now.toLocaleTimeString()
+  logs.value.push({ time, message, type })
+  nextTick(() => {
+    const terminal = document.querySelector('.terminal-window')
+    if (terminal) terminal.scrollTop = terminal.scrollHeight
+  })
+}
+
+// Execute full init
+const executeFullInit = async () => {
+  const hostnames = getValidHostnames()
+  const hosts = getValidHosts()
+
+  if (hostnames.length !== hosts.length) {
+    showNotification(`主机数量(${hosts.length})与主机名数量(${hostnames.length})不匹配`, 'error')
+    return
+  }
+
+  // Assign hostnames to hosts
+  hosts.forEach((host, index) => {
+    host.hostname = hostnames[index]
+  })
+
+  await runTask('全部初始化', '/full-init', {
+    ntp_servers: config.ntpServers,
+    management_cidr: config.managementCidr,
+    harden_etcd: config.hardenEtcd,
+    harden_postgresql: config.hardenPostgresql,
+    harden_elasticsearch: config.hardenElasticsearch
+  }, hosts)
+}
+
+// Single operations
+const modifyHostnames = async () => {
+  if (!hostnamesText.value.trim()) {
+    showNotification('请输入主机名列表', 'error')
+    return
+  }
+
+  const hostnames = getValidHostnames()
+  const hosts = getValidHosts()
+
+  if (hostnames.length !== hosts.length) {
+    showNotification(`主机数量(${hosts.length})与主机名数量(${hostnames.length})不匹配`, 'error')
+    return
+  }
+
+  hosts.forEach((host, index) => {
+    host.hostname = hostnames[index]
+  })
+
+  await runTask('修改主机名', '/modify-hostnames', {}, hosts)
+}
+
+const configureNtpSync = async () => {
+  if (!config.ntpServers || !config.ntpServers.trim()) {
+    showNotification('请输入 NTP 服务器', 'error')
+    return
+  }
+  await runTask('时钟同步', '/configure-ntp', { ntp_servers: config.ntpServers })
+}
+
+const configureSshPasswordless = async () => {
+  await runTask('SSH免密', '/configure-ssh', {})
+}
+
+const configureFirewall = async () => {
+  await runTask('防火墙配置', '/configure-firewall', {})
+}
+
+const applySecurityHardening = async () => {
+  if (!config.managementCidr) {
+    showNotification('请输入管理网络 CIDR', 'error')
+    return
+  }
+
+  // 生成 iptables 命令并显示在终端
+  logs.value = []
+  const iptablesCommands = [] // 收集所有 iptables 命令
+
+  addLog('===== 安全加固 iptables 命令 =====', 'info')
+  addLog(`管理网络 CIDR: ${config.managementCidr}`, 'info')
+  addLog('', 'info')
+
+  // Etcd 端口
+  if (config.hardenEtcd) {
+    addLog('# ===== Etcd (2379-2380) =====', 'info')
+    generateIptablesCommands(config.managementCidr, [2379, 2380], 'tcp', iptablesCommands)
+    addLog('', 'info')
+  }
+
+  // PostgreSQL 端口
+  if (config.hardenPostgresql) {
+    addLog('# ===== PostgreSQL (5432-5433) =====', 'info')
+    generateIptablesCommands(config.managementCidr, [5432, 5433], 'tcp', iptablesCommands)
+    addLog('', 'info')
+  }
+
+  // Elasticsearch 端口
+  if (config.hardenElasticsearch) {
+    addLog('# ===== Elasticsearch (9200-9300) =====', 'info')
+    generateIptablesCommands(config.managementCidr, [9200, 9300], 'tcp', iptablesCommands)
+    addLog('', 'info')
+  }
+
+  // Chronyd 端口
+  if (config.hardenChronyd) {
+    addLog('# ===== Chronyd (123) - UDP =====', 'info')
+    generateIptablesCommands(config.managementCidr, [123], 'udp', iptablesCommands)
+    const conntrackCmd = 'iptables -I INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
+    addLog(conntrackCmd, 'success')
+    iptablesCommands.push(conntrackCmd)
+    addLog('', 'info')
+  }
+
+  // 自定义封禁端口
+  if (config.blockPorts && config.blockPorts.trim()) {
+    const ports = config.blockPorts.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p))
+    if (ports.length > 0) {
+      addLog(`# ===== 自定义封禁端口 (${config.blockPorts}) =====`, 'info')
+      generateIptablesCommands(config.managementCidr, ports, 'tcp', iptablesCommands)
+      addLog('', 'info')
+    }
+  }
+
+  addLog('', 'info')
+  addLog('命令已生成，正在执行...', 'info')
+
+  // 直接调用后端 API，不使用 runTask 以保留命令输出
+  const validHosts = getValidHosts()
+  if (validHosts.length === 0) {
+    showNotification('请添加至少一台主机', 'error')
+    return
+  }
+
+  isRunning.value = true
+  results.value = []
+
+  try {
+    const response = await fetch(`${API_BASE}/security-hardening`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hosts: validHosts,
+        management_cidr: config.managementCidr,
+        harden_etcd: config.hardenEtcd,
+        harden_postgresql: config.hardenPostgresql,
+        harden_elasticsearch: config.hardenElasticsearch,
+        harden_chronyd: config.hardenChronyd,
+        block_ports: config.blockPorts,
+        iptables_commands: iptablesCommands
+      })
+    })
+
+    const data = await response.json()
+
+    if (data.status === 'success') {
+      addLog('', 'info')
+      addLog('===== 执行结果 =====', 'info')
+      results.value = data.results.map(r => ({
+        ip: r.ip,
+        success: r.success,
+        taskName: '安全加固'
+      }))
+      data.results.forEach(r => {
+        const status = r.success ? '安全加固已完成' : '执行失败'
+        addLog(`${r.ip}：${status}`, r.success ? 'success' : 'error')
+      })
+      showNotification('安全加固成功', 'success')
+    } else {
+      addLog(`失败: ${data.error}`, 'error')
+      showNotification('安全加固失败', 'error')
+    }
+  } catch (error) {
+    addLog(`错误: ${error.message}`, 'error')
+    showNotification(`执行错误: ${error.message}`, 'error')
+  } finally {
+    isRunning.value = false
+  }
+}
+
+const generateIptablesCommands = (cidr, ports, protocol, commandsArray) => {
+  ports.forEach(port => {
+    addLog(`# 端口 ${port}`, 'info')
+
+    const cmd1 = `iptables -I INPUT -s ${cidr} -p ${protocol} --dport ${port} -j ACCEPT`
+    const cmd2 = `iptables -I INPUT -i lo -p ${protocol} --dport ${port} -j ACCEPT`
+    const cmd3 = `iptables -A INPUT -p ${protocol} --dport ${port} -j DROP`
+
+    addLog(cmd1, 'success')
+    addLog(cmd2, 'success')
+    addLog(cmd3, 'success')
+
+    commandsArray.push(cmd1)
+    commandsArray.push(cmd2)
+    commandsArray.push(cmd3)
+  })
+}
+
+// Run task
+const runTask = async (taskName, endpoint, extraData, customHosts = null) => {
+  const validHosts = customHosts || getValidHosts()
+  if (validHosts.length === 0) {
+    showNotification('请添加至少一台主机', 'error')
+    return
+  }
+
+  isRunning.value = true
+  results.value = []
+  logs.value = []
+
+  addLog(`开始${taskName}...`, 'info')
+  addLog(`目标主机: ${validHosts.length} 台`, 'info')
+
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hosts: validHosts,
+        ...extraData
+      })
+    })
+
+    const data = await response.json()
+
+    if (data.status === 'success') {
+      // 简化的执行结果显示，添加任务名称
+      results.value = data.results.map(r => ({
+        ip: r.ip,
+        success: r.success,
+        taskName: taskName
+      }))
+
+      // 显示每个主机的详细日志
+      addLog('', 'info')
+      addLog('===== 执行详情 =====', 'info')
+      data.results.forEach(r => {
+        addLog(`\n[${r.hostname || r.ip}]`, 'info')
+        if (r.logs && r.logs.length > 0) {
+          r.logs.forEach(log => {
+            if (log.includes('[OK]')) {
+              addLog(log, 'success')
+            } else if (log.includes('[WARNING]') || log.includes('[WARN]')) {
+              addLog(log, 'warning')
+            } else if (log.includes('[ERROR]') || log.includes('[FAIL]')) {
+              addLog(log, 'error')
+            } else {
+              addLog(log, 'info')
+            }
+          })
+        } else {
+          addLog(r.message, r.success ? 'success' : 'error')
+        }
+      })
+
+      addLog('', 'info')
+      addLog(`${taskName}完成`, 'success')
+      showNotification(`${taskName}成功`, 'success')
+    } else {
+      addLog(`失败: ${data.error}`, 'error')
+      showNotification(`${taskName}失败`, 'error')
+    }
+  } catch (error) {
+    addLog(`错误: ${error.message}`, 'error')
+    showNotification(`执行错误: ${error.message}`, 'error')
+  } finally {
+    isRunning.value = false
+  }
+}
+</script>
+
+<style scoped>
+.init-page {
+  min-height: 100vh;
+  padding: 20px;
+  background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
+  position: relative;
+}
+
+.init-page::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 35px,
+    rgba(255, 255, 255, 0.05) 35px,
+    rgba(255, 255, 255, 0.05) 70px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.init-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+.main-content {
+  display: grid;
+  grid-template-columns: 320px 320px 1fr;
+  gap: 20px;
+}
+
+.left-panel,
+.middle-panel,
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.section {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+}
+
+.terminal-section .section-title,
+.results-section .section-title {
+  border-bottom: none;
+}
+
+/* Form */
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: monospace;
+}
+
+.form-group textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.form-group small {
+  font-size: 11px;
+  color: #999;
+  margin-top: 4px;
+  display: block;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* Checkbox */
+.checkbox-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkbox-item input {
+  width: 16px;
+  height: 16px;
+}
+
+/* Buttons */
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 100%);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(107, 93, 211, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #d0d0d0;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.actions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Terminal */
+.terminal-section {
+  display: flex;
+  flex-direction: column;
+  height: 430px;
+}
+
+.terminal-window {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 15px;
+  flex: 1;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  height: 100%;
+}
+
+.terminal-empty {
+  color: #666;
+  text-align: center;
+  padding: 20px;
+}
+
+.log-line {
+  padding: 4px 0;
+  line-height: 1.6;
+}
+
+.log-line .time {
+  color: #666;
+  margin-right: 8px;
+}
+
+.log-line.info .msg {
+  color: #2196F3;
+}
+
+.log-line.success .msg {
+  color: #4CAF50;
+}
+
+.log-line.error .msg {
+  color: #f44336;
+}
+
+.log-line.warning .msg {
+  color: #ff9800;
+}
+
+/* Results */
+.results-section {
+  display: flex;
+  flex-direction: column;
+  height: 200px;
+}
+
+.results-list {
+  flex: 1;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 15px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.result-item {
+  padding: 4px 0;
+  line-height: 1.6;
+}
+
+.result-item.success {
+  color: #4CAF50;
+}
+
+.result-item.error {
+  color: #f44336;
+}
+
+/* Notification */
+.notification {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+}
+
+.notification.success {
+  background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+}
+
+.notification.error {
+  background: linear-gradient(135deg, #c0392b 0%, #e74c3c 100%);
+}
+
+@media (max-width: 1024px) {
+  .main-content {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

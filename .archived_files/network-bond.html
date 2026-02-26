@@ -1,0 +1,2186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络聚合配置</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+                         'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
+            min-height: 100vh;
+            padding: 15px;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 35px,
+                rgba(255, 255, 255, 0.05) 35px,
+                rgba(255, 255, 255, 0.05) 70px
+            );
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        body > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .home-btn {
+            color: white;
+            text-decoration: none;
+            font-size: 24px;
+            padding: 8px 15px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .home-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px 20px;
+            margin-bottom: 25px;
+            border-radius: 4px;
+        }
+
+        .info-box h4 {
+            color: #1976D2;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .info-box li {
+            margin: 6px 0;
+            line-height: 1.6;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 12px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+            font-weight: 600;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .form-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-field label {
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+            font-size: 15px;
+        }
+
+        .form-field input,
+        .form-field select {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-field input:focus,
+        .form-field select:focus {
+            outline: none;
+            border-color: #6B5DD3;
+        }
+
+        .form-field small {
+            margin-top: 5px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .custom-multiselect {
+            position: relative;
+        }
+
+        .custom-multiselect-display {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s;
+            min-height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .custom-multiselect-display:hover {
+            border-color: #6B5DD3;
+        }
+
+        .custom-multiselect-display.open {
+            border-color: #6B5DD3;
+        }
+
+        .custom-multiselect-display .placeholder {
+            color: #999;
+        }
+
+        .custom-multiselect-display .arrow {
+            margin-left: 10px;
+            transition: transform 0.3s;
+        }
+
+        .custom-multiselect-display.open .arrow {
+            transform: rotate(180deg);
+        }
+
+        .custom-multiselect-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: white;
+            border: 2px solid #6B5DD3;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .custom-multiselect-dropdown.show {
+            display: block;
+        }
+
+        .custom-multiselect-option {
+            padding: 10px 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.2s;
+        }
+
+        .custom-multiselect-option:hover {
+            background: #f0f4ff;
+        }
+
+        .custom-multiselect-option.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #f8f9fa;
+        }
+
+        .custom-multiselect-option.disabled:hover {
+            background: #f8f9fa;
+        }
+
+        .custom-multiselect-option input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #6B5DD3;
+        }
+
+        .custom-multiselect-option.disabled input[type="checkbox"] {
+            cursor: not-allowed;
+        }
+
+        .form-field input.error {
+            border-color: #dc3545;
+            background: #fff5f5;
+        }
+
+        .form-field .error-message {
+            color: #dc3545;
+            font-size: 13px;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .form-field .error-message.show {
+            display: block;
+        }
+
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(107, 93, 211, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .confirmation-box {
+            margin-top: 20px;
+            padding: 20px;
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .confirmation-box.show {
+            display: block;
+        }
+
+        .confirmation-box.error {
+            background: #f8d7da;
+            border-color: #dc3545;
+        }
+
+        .confirmation-box h4 {
+            margin: 0 0 15px 0;
+            color: #856404;
+            font-size: 16px;
+        }
+
+        .confirmation-box.error h4 {
+            color: #721c24;
+        }
+
+        .confirmation-content {
+            margin-bottom: 15px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .confirmation-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-confirm {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-confirm:hover {
+            background: #218838;
+        }
+
+        .btn-cancel {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-cancel:hover {
+            background: #5a6268;
+        }
+
+        .nic-selection-error {
+            border-color: #dc3545 !important;
+            background: #fff5f5 !important;
+        }
+
+        .btn-add {
+            background: #17a2b8;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn-add:hover {
+            background: #138496;
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            color: white;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
+        }
+
+        .connection-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            max-width: 100%;
+            flex-wrap: wrap;
+        }
+
+        .connection-status span:last-child {
+            word-break: break-word;
+        }
+
+        .connection-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .connection-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .bond-group {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border: 2px solid #e0e0e0;
+            position: relative;
+        }
+
+        .bond-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .bond-group-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #6B5DD3;
+        }
+
+        .bond-config-section {
+            margin-top: 20px;
+        }
+
+        .add-bond-btn {
+            margin-top: 15px;
+        }
+
+        #bondConfigSection {
+            display: block;
+        }
+
+        #bondConfigSection.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .result-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .result-section.show {
+            display: block;
+        }
+
+        .log-output {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .log-success { color: #4caf50; }
+        .log-error { color: #f44336; }
+        .log-warning { color: #ff9800; }
+        .log-info { color: #2196F3; }
+
+        .detailed-log {
+            display: none;
+        }
+
+        .detailed-log.show {
+            display: block;
+        }
+
+        .network-status-section {
+            margin-top: 20px;
+            display: block;
+        }
+
+        .network-status-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .network-status-table th {
+            background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .network-status-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 14px;
+        }
+
+        .network-status-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .network-status-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .nic-type-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .nic-type-bond {
+            background: #e7f3ff;
+            color: #1976D2;
+        }
+
+        .nic-type-physical {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .nic-type-virtual {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+
+        .physical-ports {
+            line-height: 1.8;
+        }
+
+        .physical-ports div {
+            padding: 2px 0;
+        }
+
+        .server-section {
+            margin-bottom: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: white;
+        }
+
+        .server-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
+            color: white;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .server-header:hover {
+            background: linear-gradient(135deg, #5A4DC2 0%, #7A6FD7 50%, #8A7FE7 100%);
+        }
+
+        .server-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .server-header-icon {
+            font-size: 20px;
+            transition: transform 0.3s;
+        }
+
+        .server-section.collapsed .server-header-icon {
+            transform: rotate(-90deg);
+        }
+
+        .server-content {
+            max-height: 1000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .server-section.collapsed .server-content {
+            max-height: 0;
+        }
+
+        .collapse-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .btn-collapse {
+            padding: 8px 20px;
+            font-size: 14px;
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-collapse:hover {
+            background: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <a href="index.html" class="home-btn" title="返回导航页">🏠</a>
+            <h1>🔗 网络聚合配置</h1>
+        </header>
+
+        <!-- 内容区域 -->
+        <div class="content">
+            <!-- Bond模式说明 -->
+            <div class="info-box">
+                <h4>📌 Bond模式说明</h4>
+                <ul>
+                    <li><strong>Mode 0 (balance-rr)</strong>: 轮询模式，提供负载均衡和容错能力</li>
+                    <li><strong>Mode 1 (active-backup)</strong>: 主备模式，只有一个网卡工作，提供冗余</li>
+                    <li><strong>Mode 4 (802.3ad/LACP)</strong>: 动态链路聚合，需要交换机支持LACP</li>
+                    <li><strong>Mode 6 (balance-alb)</strong>: 自适应负载均衡，不需要交换机特殊配置</li>
+                </ul>
+            </div>
+
+            <!-- SSH连接配置 -->
+            <div class="section">
+                <div class="section-title">SSH连接配置</div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label for="serverAddresses">服务器地址</label>
+                        <input type="text" id="serverAddresses" placeholder="192.168.1.100 或 192.168.1.1-192.168.1.20">
+                        <small>支持单个地址或范围格式（如: 192.168.1.1-192.168.1.20）</small>
+                    </div>
+                    <div class="form-field">
+                        <label for="username">SSH用户名</label>
+                        <input type="text" id="username" value="root">
+                    </div>
+                    <div class="form-field">
+                        <label for="password">SSH密码</label>
+                        <input type="password" id="password">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 15px; align-items: center; margin-top: 15px;">
+                    <button class="btn btn-primary" id="connectBtn" onclick="connectSSH()">🔌 连接</button>
+                    <div class="connection-status disconnected" id="connectionStatus">
+                        <span>●</span>
+                        <span id="statusText">未连接</span>
+                    </div>
+                </div>
+
+                <!-- 网络状态表格 -->
+                <div class="network-status-section" id="networkStatusSection">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;">
+                        <h4 style="color: #333; font-size: 16px; margin: 0;">📊 当前网络状态</h4>
+                        <div class="collapse-controls" id="collapseControls" style="display: none;">
+                            <button class="btn btn-collapse" id="toggleCollapseBtn" onclick="toggleAllServers()">📂 展开全部</button>
+                            <button class="btn btn-collapse" onclick="refreshNetworkStatus()">🔄 刷新状态</button>
+                        </div>
+                    </div>
+                    <div id="serversContainer">
+                        <div style="padding: 20px; text-align: center; color: #999; background: white; border-radius: 8px;">暂无数据</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bond配置区域 -->
+            <div class="section bond-config-section" id="bondConfigSection">
+                <div class="section-title">🔧 Bond配置 <span style="color: #999; font-size: 14px; font-weight: normal;" id="bondConfigHint">(请先连接SSH获取网卡信息)</span></div>
+
+                <div id="bondGroupsContainer">
+                    <!-- Bond配置组将在连接成功后自动添加 -->
+                </div>
+
+                <button class="btn btn-add add-bond-btn" onclick="addBondGroup()" id="addBondBtn" disabled>
+                    <span>➕</span>
+                    <span>添加Bond配置</span>
+                </button>
+
+                <div style="margin-top: 25px; display: flex; gap: 15px;">
+                    <button class="btn btn-success" onclick="applyConfiguration()" id="applyBtn" disabled>🚀 应用配置</button>
+                    <button class="btn btn-remove" onclick="clearAllBonds()" id="clearBondsBtn" disabled>🗑️ 清除所有Bond</button>
+                    <button class="btn btn-secondary" onclick="resetAll()">🔄 重置</button>
+                </div>
+
+                <!-- 确认提示框 -->
+                <div class="confirmation-box" id="confirmationBox">
+                    <h4 id="confirmationTitle">⚠️ 确认配置</h4>
+                    <div class="confirmation-content" id="confirmationContent"></div>
+                    <div class="confirmation-actions">
+                        <button class="btn btn-confirm" onclick="proceedWithConfiguration()">✓ 确定继续</button>
+                        <button class="btn btn-cancel" onclick="cancelConfiguration()">✗ 取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 结果显示 -->
+            <div class="result-section" id="resultSection">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0;">📋 配置日志</h3>
+                    <button class="btn btn-collapse" id="toggleDetailedLogBtn" onclick="toggleDetailedLog()" style="display: none;">
+                        📝 显示详细日志
+                    </button>
+                </div>
+                <div class="log-output" id="logOutput"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = `http://${window.location.hostname}:8001`;
+
+        let bondGroupCounter = 0;
+        let availableNics = [];
+        let connectedServers = [];
+        let serversData = []; // 存储每台服务器的数据
+
+        function addLog(message, type = 'info') {
+            const logOutput = document.getElementById('logOutput');
+            const line = document.createElement('div');
+            line.className = `log-${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logOutput.appendChild(line);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        function addDetailedLog(logEntry) {
+            const logOutput = document.getElementById('logOutput');
+            const line = document.createElement('div');
+
+            // 根据日志类型设置样式
+            let className = 'log-info detailed-log';  // 添加 detailed-log 类
+            let icon = 'ℹ️';
+
+            if (logEntry.level === 'error') {
+                className = 'log-error detailed-log';
+                icon = '❌';
+            } else if (logEntry.level === 'warning') {
+                className = 'log-warning detailed-log';
+                icon = '⚠️';
+            } else if (logEntry.level === 'info') {
+                className = 'log-info detailed-log';
+                icon = '✓';
+            }
+
+            line.className = className;
+
+            // 格式化时间
+            const time = logEntry.timestamp ? new Date(logEntry.timestamp * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
+
+            // 根据日志类型显示不同内容
+            if (logEntry.type === 'command') {
+                // 显示命令
+                line.innerHTML = `[${time}] ${icon} <strong>执行命令:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px;">${logEntry.command}</code>`;
+                if (logEntry.description) {
+                    line.innerHTML += `<br><span style="margin-left: 30px; color: #666;">说明: ${logEntry.description}</span>`;
+                }
+            } else if (logEntry.type === 'output') {
+                // 显示输出
+                line.innerHTML = `[${time}] ${icon} ${logEntry.message}`;
+                if (logEntry.output) {
+                    const outputDiv = document.createElement('div');
+                    outputDiv.style.cssText = 'margin-left: 30px; background: rgba(0,0,0,0.05); padding: 8px; border-radius: 4px; margin-top: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap;';
+                    outputDiv.textContent = logEntry.output;
+                    line.appendChild(outputDiv);
+                }
+            } else if (logEntry.type === 'step') {
+                // 显示步骤
+                line.innerHTML = `[${time}] ${icon} <strong>${logEntry.message}</strong>`;
+            } else {
+                // 其他类型
+                line.textContent = `[${time}] ${icon} ${logEntry.message}`;
+            }
+
+            logOutput.appendChild(line);
+            logOutput.scrollTop = logOutput.scrollHeight;
+
+            // 显示详细日志按钮
+            const toggleBtn = document.getElementById('toggleDetailedLogBtn');
+            if (toggleBtn) {
+                toggleBtn.style.display = 'inline-block';
+            }
+        }
+
+        function assignIpFromRange(startIp, endIp, index) {
+            // 将IP地址转换为整数
+            function ipToInt(ip) {
+                const parts = ip.split('.');
+                return (parseInt(parts[0]) << 24) + (parseInt(parts[1]) << 16) +
+                       (parseInt(parts[2]) << 8) + parseInt(parts[3]);
+            }
+
+            // 将整数转换为IP地址
+            function intToIp(num) {
+                return `${(num >> 24) & 0xFF}.${(num >> 16) & 0xFF}.${(num >> 8) & 0xFF}.${num & 0xFF}`;
+            }
+
+            const startInt = ipToInt(startIp);
+            const assignedInt = startInt + index;
+            return intToIp(assignedInt);
+        }
+
+        function parseBondConfigsForServer(bondConfigs, serverIndex) {
+            // 为指定服务器解析Bond配置，处理IP范围分配
+            return bondConfigs.map(config => {
+                const configForServer = { ...config };
+
+                // 解析IP地址范围
+                const ipCidr = config.ip || '';
+                if (ipCidr && ipCidr.includes('-')) {
+                    // 格式: 192.168.100.5-192.168.100.6/24
+                    if (ipCidr.includes('/')) {
+                        const lastSlashIndex = ipCidr.lastIndexOf('/');
+                        const ipRange = ipCidr.substring(0, lastSlashIndex);
+                        const netmask = ipCidr.substring(lastSlashIndex + 1);
+                        const [startIp, endIp] = ipRange.split('-').map(ip => ip.trim());
+
+                        // 根据服务器索引分配IP
+                        const assignedIp = assignIpFromRange(startIp, endIp, serverIndex);
+                        configForServer.ip = `${assignedIp}/${netmask}`;
+                    } else {
+                        // 没有子网掩码的情况
+                        const [startIp, endIp] = ipCidr.split('-').map(ip => ip.trim());
+                        const assignedIp = assignIpFromRange(startIp, endIp, serverIndex);
+                        configForServer.ip = assignedIp;
+                    }
+                }
+
+                return configForServer;
+            });
+        }
+
+        async function connectSSH() {
+            const addresses = document.getElementById('serverAddresses').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!addresses || !username || !password) {
+                showConfirmation('error', '连接信息不完整', '请填写完整的SSH连接信息（服务器地址、用户名、密码）', false);
+                return;
+            }
+
+            const connectBtn = document.getElementById('connectBtn');
+            connectBtn.disabled = true;
+            connectBtn.textContent = '⏳ 连接中...';
+
+            try {
+                // 解析服务器地址
+                connectedServers = parseServerAddresses(addresses);
+                serversData = [];
+
+                // 更新连接状态
+                const statusEl = document.getElementById('connectionStatus');
+                statusEl.className = 'connection-status connected';
+                document.getElementById('statusText').textContent = `正在连接 ${connectedServers.length} 台服务器...`;
+
+                // 并行连接所有服务器（提速）
+                const promises = connectedServers.map(async (host) => {
+                    try {
+                        const response = await fetch(`${API_BASE}/api/network-tools/bond/interfaces/`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                host: host,
+                                username: username,
+                                password: password
+                            })
+                        });
+
+                        const result = await response.json();
+
+                        if (result.status === 'success') {
+                            return {
+                                host: host,
+                                nics: result.nics || [],
+                                interfaces: result.interfaces || [],
+                                bonds: result.bonds || [],
+                                status: 'success'
+                            };
+                        } else {
+                            return {
+                                host: host,
+                                status: 'failed',
+                                error: result.error || '连接失败'
+                            };
+                        }
+                    } catch (error) {
+                        return {
+                            host: host,
+                            status: 'failed',
+                            error: error.message
+                        };
+                    }
+                });
+
+                // 等待所有连接完成
+                serversData = await Promise.all(promises);
+
+                // 统计成功和失败数量
+                const successCount = serversData.filter(s => s.status === 'success').length;
+                const failCount = serversData.length - successCount;
+
+                // 更新连接状态
+                document.getElementById('statusText').textContent =
+                    `已连接 ${successCount} 台服务器` + (failCount > 0 ? ` (${failCount} 台失败)` : '');
+
+                // 显示所有服务器的网络状态
+                displayAllServersStatus();
+
+                // 使用第一台成功连接的服务器的网卡列表
+                const firstSuccess = serversData.find(s => s.status === 'success');
+                if (firstSuccess) {
+                    availableNics = firstSuccess.nics;
+
+                    // 隐藏Bond配置提示
+                    const bondConfigHint = document.getElementById('bondConfigHint');
+                    if (bondConfigHint) {
+                        bondConfigHint.style.display = 'none';
+                    }
+
+                    // 启用Bond配置按钮
+                    document.getElementById('addBondBtn').disabled = false;
+                    document.getElementById('applyBtn').disabled = false;
+                    document.getElementById('clearBondsBtn').disabled = false;
+
+                    // 清空占位提示并添加第一个Bond配置组
+                    document.getElementById('bondGroupsContainer').innerHTML = '';
+                    addBondGroup();
+                } else {
+                    throw new Error('所有服务器连接失败');
+                }
+            } catch (error) {
+                showConfirmation('error', 'SSH连接失败', `连接失败: ${error.message}\n\n请检查：\n- 服务器地址是否正确\n- 用户名和密码是否正确\n- 服务器SSH服务是否正常运行\n- 网络连接是否正常`, false);
+                const statusEl = document.getElementById('connectionStatus');
+                statusEl.className = 'connection-status disconnected';
+                document.getElementById('statusText').textContent = '连接失败';
+            } finally {
+                connectBtn.disabled = false;
+                connectBtn.textContent = '🔌 连接';
+            }
+        }
+
+        function parseServerAddresses(input) {
+            // 支持多种格式：
+            // 1. 单个地址: 192.168.1.5
+            // 2. 范围: 192.168.1.5-192.168.1.6
+            // 3. 逗号分隔: 192.168.1.5,192.168.1.6
+            // 4. 混合: 192.168.1.5-192.168.1.6,192.168.1.10
+
+            const addresses = [];
+            const parts = input.split(',').map(s => s.trim());
+
+            for (const part of parts) {
+                if (part.includes('-')) {
+                    // 处理范围
+                    const [start, end] = part.split('-').map(s => s.trim());
+                    const rangeIPs = generateIPRange(start, end);
+                    addresses.push(...rangeIPs);
+                } else if (part) {
+                    // 单个地址
+                    addresses.push(part);
+                }
+            }
+
+            return addresses;
+        }
+
+        function generateIPRange(startIP, endIP) {
+            const start = startIP.split('.').map(Number);
+            const end = endIP.split('.').map(Number);
+            const ips = [];
+
+            for (let a = start[0]; a <= end[0]; a++) {
+                for (let b = (a === start[0] ? start[1] : 0); b <= (a === end[0] ? end[1] : 255); b++) {
+                    for (let c = (a === start[0] && b === start[1] ? start[2] : 0);
+                         c <= (a === end[0] && b === end[1] ? end[2] : 255); c++) {
+                        for (let d = (a === start[0] && b === start[1] && c === start[2] ? start[3] : 0);
+                             d <= (a === end[0] && b === end[1] && c === end[2] ? end[3] : 255); d++) {
+                            ips.push(`${a}.${b}.${c}.${d}`);
+                        }
+                    }
+                }
+            }
+            return ips;
+        }
+
+        function addBondGroup() {
+            bondGroupCounter++;
+            const container = document.getElementById('bondGroupsContainer');
+
+            const group = document.createElement('div');
+            group.className = 'bond-group';
+            group.id = `bondGroup${bondGroupCounter}`;
+
+            // 生成网卡选项（过滤掉bond接口）
+            const physicalNics = availableNics.filter(nic => !nic.startsWith('bond'));
+            const nicCheckboxes = physicalNics.map(nic => `
+                <div class="custom-multiselect-option" data-value="${nic}">
+                    <input type="checkbox" value="${nic}">
+                    <label>${nic}</label>
+                </div>
+            `).join('');
+
+            // 根据连接的服务器数量设置IP地址placeholder
+            let ipPlaceholder;
+            if (connectedServers.length > 1) {
+                ipPlaceholder = '范围: 192.168.2.1-192.168.2.20/24';
+            } else {
+                ipPlaceholder = '192.168.1.100/24';
+            }
+
+            group.innerHTML = `
+                <div class="bond-group-header">
+                    <div class="bond-group-title">Bond配置 #${bondGroupCounter}</div>
+                    <button class="btn btn-remove" onclick="removeBondGroup(${bondGroupCounter})">删除</button>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Bond接口名称</label>
+                        <input type="text" class="bond-name" value="bond${bondGroupCounter - 1}" placeholder="bond0">
+                    </div>
+                    <div class="form-field">
+                        <label>Bond模式</label>
+                        <select class="bond-mode">
+                            <option value="1">Mode 1 - 主备模式</option>
+                            <option value="0">Mode 0 - 轮询模式</option>
+                            <option value="4">Mode 4 - LACP聚合</option>
+                            <option value="6">Mode 6 - 自适应负载均衡</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label>网卡接口 (可多选)</label>
+                        <div class="custom-multiselect bond-nics">
+                            <div class="custom-multiselect-display">
+                                <span class="placeholder">请选择网卡</span>
+                                <span class="arrow">▼</span>
+                            </div>
+                            <div class="custom-multiselect-dropdown">
+                                ${nicCheckboxes}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>IP地址 (CIDR格式)</label>
+                        <input type="text" class="bond-ip" placeholder="${ipPlaceholder}" oninput="validateBondIP(this)">
+                        <div class="error-message">格式错误</div>
+                    </div>
+                    <div class="form-field">
+                        <label>网关</label>
+                        <input type="text" class="bond-gateway" placeholder="可不配置">
+                    </div>
+                    <div class="form-field">
+                        <label>DNS服务器</label>
+                        <input type="text" class="bond-dns" placeholder="可不配置">
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(group);
+
+            // 绑定事件
+            setupCustomMultiselect(group);
+
+            // 更新所有Bond配置的网卡可用性
+            updateAllNicAvailability();
+        }
+
+        function getBondConfigurations() {
+            const groups = document.querySelectorAll('.bond-group');
+            const configs = [];
+
+            groups.forEach(group => {
+                // 获取选中的网卡（从自定义多选下拉框）
+                const multiselect = group.querySelector('.custom-multiselect');
+                const checkboxes = multiselect.querySelectorAll('input[type="checkbox"]:checked');
+                const selectedNics = Array.from(checkboxes).map(cb => cb.value);
+
+                if (selectedNics.length === 0) {
+                    throw new Error('每个Bond至少需要选择1个网卡');
+                }
+
+                configs.push({
+                    name: group.querySelector('.bond-name').value,
+                    mode: group.querySelector('.bond-mode').value,
+                    nics: selectedNics,
+                    ip: group.querySelector('.bond-ip').value,
+                    gateway: group.querySelector('.bond-gateway').value,
+                    dns: group.querySelector('.bond-dns').value
+                });
+            });
+
+            return configs;
+        }
+
+        function displayAllServersStatus() {
+            const container = document.getElementById('serversContainer');
+            container.innerHTML = '';
+
+            // 显示/隐藏折叠控制按钮
+            const collapseControls = document.getElementById('collapseControls');
+            if (serversData.length > 1) {
+                collapseControls.style.display = 'flex';
+            } else {
+                collapseControls.style.display = 'none';
+            }
+
+            serversData.forEach((serverData, index) => {
+                const serverSection = document.createElement('div');
+                serverSection.className = 'server-section';
+                serverSection.id = `server-${index}`;
+
+                // 服务器头部
+                const header = document.createElement('div');
+                header.className = 'server-header';
+                header.onclick = () => toggleServerSection(index);
+
+                const headerLeft = document.createElement('div');
+                headerLeft.className = 'server-header-left';
+
+                const icon = document.createElement('span');
+                icon.className = 'server-header-icon';
+                icon.textContent = '▼';
+
+                const title = document.createElement('span');
+                if (serverData.status === 'success') {
+                    title.textContent = `🖥️ ${serverData.host} (${serverData.interfaces.length} 个网卡)`;
+                } else {
+                    title.textContent = `🖥️ ${serverData.host} (连接失败)`;
+                }
+
+                headerLeft.appendChild(icon);
+                headerLeft.appendChild(title);
+
+                const statusBadge = document.createElement('span');
+                statusBadge.style.cssText = 'padding: 4px 12px; border-radius: 4px; font-size: 13px; font-weight: 600;';
+                if (serverData.status === 'success') {
+                    statusBadge.style.background = '#d4edda';
+                    statusBadge.style.color = '#155724';
+                    statusBadge.textContent = '✓ 已连接';
+                } else {
+                    statusBadge.style.background = '#f8d7da';
+                    statusBadge.style.color = '#721c24';
+                    statusBadge.textContent = '✗ 失败';
+                }
+
+                header.appendChild(headerLeft);
+                header.appendChild(statusBadge);
+
+                // 服务器内容
+                const content = document.createElement('div');
+                content.className = 'server-content';
+
+                if (serverData.status === 'success') {
+                    const table = createNetworkTable(serverData.interfaces, serverData.bonds);
+                    content.appendChild(table);
+                } else {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.cssText = 'padding: 20px; text-align: center; color: #721c24; background: #f8d7da;';
+                    errorDiv.textContent = `错误: ${serverData.error}`;
+                    content.appendChild(errorDiv);
+                }
+
+                serverSection.appendChild(header);
+                serverSection.appendChild(content);
+                container.appendChild(serverSection);
+            });
+        }
+
+        function createNetworkTable(interfaces, bonds) {
+            const table = document.createElement('table');
+            table.className = 'network-status-table';
+
+            // 表头
+            const thead = document.createElement('thead');
+            thead.innerHTML = `
+                <tr>
+                    <th>网卡名</th>
+                    <th>物理口</th>
+                    <th>物理地址(MAC)</th>
+                    <th>IP地址</th>
+                    <th>连接速率</th>
+                    <th>网关/DNS</th>
+                </tr>
+            `;
+            table.appendChild(thead);
+
+            // 表体
+            const tbody = document.createElement('tbody');
+
+            // 创建bond映射
+            const bondMap = {};
+            bonds.forEach(bond => {
+                bondMap[bond.name] = bond;
+            });
+
+            // 显示所有接口
+            interfaces.forEach(iface => {
+                const row = document.createElement('tr');
+
+                // 网卡名
+                const nameCell = document.createElement('td');
+                let typeBadge = '';
+                if (iface.type === 'bond') {
+                    typeBadge = '<span class="nic-type-badge nic-type-bond">Bond</span> ';
+                } else if (iface.type === 'physical') {
+                    typeBadge = '<span class="nic-type-badge nic-type-physical">物理</span> ';
+                } else if (iface.type === 'virtual') {
+                    typeBadge = '<span class="nic-type-badge nic-type-virtual">虚拟</span> ';
+                }
+                nameCell.innerHTML = typeBadge + iface.name;
+
+                // 物理口
+                const physicalCell = document.createElement('td');
+                if (iface.type === 'bond' && bondMap[iface.name]) {
+                    const bond = bondMap[iface.name];
+                    if (bond.slaves && bond.slaves.length > 0) {
+                        physicalCell.innerHTML = '<div class="physical-ports">' +
+                            bond.slaves.map(s => `<div>${s}</div>`).join('') +
+                            '</div>';
+                    } else {
+                        physicalCell.textContent = '-';
+                    }
+                } else {
+                    physicalCell.textContent = iface.name;
+                }
+
+                // 物理地址(MAC)
+                const macCell = document.createElement('td');
+                macCell.textContent = iface.mac || '-';
+
+                // IP地址
+                const ipCell = document.createElement('td');
+                ipCell.textContent = iface.ip || '-';
+
+                // 连接速率
+                const speedCell = document.createElement('td');
+                speedCell.textContent = iface.speed || '-';
+
+                // 网关/DNS
+                const gatewayCell = document.createElement('td');
+                gatewayCell.textContent = iface.gateway || '-';
+
+                row.appendChild(nameCell);
+                row.appendChild(physicalCell);
+                row.appendChild(macCell);
+                row.appendChild(ipCell);
+                row.appendChild(speedCell);
+                row.appendChild(gatewayCell);
+
+                tbody.appendChild(row);
+            });
+
+            table.appendChild(tbody);
+            return table;
+        }
+
+        async function toggleServerSection(index) {
+            const section = document.getElementById(`server-${index}`);
+            const isCollapsed = section.classList.contains('collapsed');
+
+            // 切换折叠状态
+            section.classList.toggle('collapsed');
+
+            // 如果是展开操作，重新加载该服务器的网卡配置
+            if (isCollapsed && serversData[index]) {
+                const serverData = serversData[index];
+                const host = serverData.host;
+
+                // 显示加载状态
+                const icon = section.querySelector('.server-header-icon');
+                const originalIcon = icon.textContent;
+                icon.textContent = '⏳';
+
+                try {
+                    const username = document.getElementById('username').value;
+                    const password = document.getElementById('password').value;
+
+                    const response = await fetch(`${API_BASE}/api/network-tools/bond/interfaces/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            host: host,
+                            username: username,
+                            password: password
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        // 更新该服务器的数据
+                        serversData[index] = {
+                            host: host,
+                            nics: result.nics || [],
+                            interfaces: result.interfaces || [],
+                            bonds: result.bonds || [],
+                            status: 'success'
+                        };
+
+                        // 重新渲染所有服务器状态（保持当前展开/折叠状态）
+                        displayAllServersStatus();
+
+                        // 恢复展开状态
+                        const updatedSection = document.getElementById(`server-${index}`);
+                        updatedSection.classList.remove('collapsed');
+                    } else {
+                        icon.textContent = originalIcon;
+                        console.error('重新加载网卡配置失败:', result.error);
+                    }
+                } catch (error) {
+                    icon.textContent = originalIcon;
+                    console.error('重新加载网卡配置失败:', error);
+                }
+            }
+        }
+
+        function expandAllServers() {
+            document.querySelectorAll('.server-section').forEach(section => {
+                section.classList.remove('collapsed');
+            });
+            // 更新按钮文本
+            const btn = document.getElementById('toggleCollapseBtn');
+            if (btn) {
+                btn.textContent = '📁 折叠全部';
+            }
+        }
+
+        function collapseAllServers() {
+            document.querySelectorAll('.server-section').forEach(section => {
+                section.classList.add('collapsed');
+            });
+            // 更新按钮文本
+            const btn = document.getElementById('toggleCollapseBtn');
+            if (btn) {
+                btn.textContent = '📂 展开全部';
+            }
+        }
+
+        function toggleAllServers() {
+            // 检查当前状态：如果有任何一个是展开的，就全部折叠；否则全部展开
+            const sections = document.querySelectorAll('.server-section');
+            const hasExpanded = Array.from(sections).some(section => !section.classList.contains('collapsed'));
+
+            if (hasExpanded) {
+                collapseAllServers();
+            } else {
+                expandAllServers();
+            }
+        }
+
+        async function refreshNetworkStatus() {
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ 刷新中...';
+
+            try {
+                // 重新连接SSH获取最新网络状态
+                await connectSSH();
+            } catch (error) {
+                console.error('刷新网络状态失败:', error);
+                showConfirmation('error', '刷新失败', `刷新网络状态失败: ${error.message}`, false);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        function toggleDetailedLog() {
+            const detailedLogs = document.querySelectorAll('.detailed-log');
+            const btn = document.getElementById('toggleDetailedLogBtn');
+            const isShowing = detailedLogs[0]?.classList.contains('show');
+
+            detailedLogs.forEach(log => {
+                if (isShowing) {
+                    log.classList.remove('show');
+                } else {
+                    log.classList.add('show');
+                }
+            });
+
+            btn.textContent = isShowing ? '📝 显示详细日志' : '📝 隐藏详细日志';
+        }
+
+        function displayNetworkStatus(interfaces, bonds) {
+            // 保留此函数以兼容旧代码，但现在使用 displayAllServersStatus
+            displayAllServersStatus();
+        }
+
+        function removeBondGroup(id) {
+            const group = document.getElementById(`bondGroup${id}`);
+            if (group) {
+                group.remove();
+                // 删除后更新所有网卡可用性
+                updateAllNicAvailability();
+            }
+        }
+
+        function setupCustomMultiselect(group) {
+            const multiselect = group.querySelector('.custom-multiselect');
+            const display = multiselect.querySelector('.custom-multiselect-display');
+            const dropdown = multiselect.querySelector('.custom-multiselect-dropdown');
+            const options = dropdown.querySelectorAll('.custom-multiselect-option');
+
+            // 点击显示框切换下拉菜单
+            display.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 关闭其他所有下拉菜单
+                document.querySelectorAll('.custom-multiselect-dropdown.show').forEach(dd => {
+                    if (dd !== dropdown) {
+                        dd.classList.remove('show');
+                        dd.previousElementSibling.classList.remove('open');
+                    }
+                });
+                dropdown.classList.toggle('show');
+                display.classList.toggle('open');
+            });
+
+            // 点击选项
+            options.forEach(option => {
+                const checkbox = option.querySelector('input[type="checkbox"]');
+
+                option.addEventListener('click', (e) => {
+                    if (option.classList.contains('disabled')) {
+                        e.preventDefault();
+                        return;
+                    }
+
+                    if (e.target !== checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                    }
+                    updateCustomMultiselectDisplay(multiselect);
+                    updateAllNicAvailability();
+                });
+            });
+
+            // 点击页面其他地方关闭下拉菜单
+            document.addEventListener('click', () => {
+                dropdown.classList.remove('show');
+                display.classList.remove('open');
+            });
+
+            dropdown.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
+
+        function validateBondIP(input) {
+            const value = input.value.trim();
+            const errorMsg = input.nextElementSibling;
+
+            // 如果为空，不显示错误
+            if (!value) {
+                input.classList.remove('error');
+                errorMsg.classList.remove('show');
+                return true;
+            }
+
+            let isValid = false;
+            let errorText = '';
+
+            // IP地址正则：xxx.xxx.xxx.xxx
+            const ipPattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+            // 验证IP地址的每个段是否在0-255范围内
+            function isValidIP(ip) {
+                const match = ip.match(ipPattern);
+                if (!match) return false;
+                for (let i = 1; i <= 4; i++) {
+                    const num = parseInt(match[i]);
+                    if (num < 0 || num > 255) return false;
+                }
+                return true;
+            }
+
+            // 将IP地址转换为数值用于比较
+            function ipToNumber(ip) {
+                const parts = ip.split('.').map(Number);
+                return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+            }
+
+            // 检查两个IP是否在同一个C类网段
+            function isSameSubnet(ip1, ip2) {
+                const parts1 = ip1.split('.');
+                const parts2 = ip2.split('.');
+                return parts1[0] === parts2[0] && parts1[1] === parts2[1] && parts1[2] === parts2[2];
+            }
+
+            // 计算IP范围内的地址数量
+            function countIPsInRange(startIP, endIP) {
+                return ipToNumber(endIP) - ipToNumber(startIP) + 1;
+            }
+
+            if (connectedServers.length > 1) {
+                // 多服务器：必须是范围格式，且IP数量必须与服务器数量相同
+                if (value.includes('-')) {
+                    const parts = value.split('/');
+                    if (parts.length === 2) {
+                        const [ipRange, cidr] = parts;
+                        const ipParts = ipRange.split('-');
+
+                        if (ipParts.length === 2) {
+                            const startIP = ipParts[0].trim();
+                            const endIP = ipParts[1].trim();
+
+                            if (isValidIP(startIP) && isValidIP(endIP)) {
+                                const cidrNum = parseInt(cidr);
+                                if (cidrNum >= 0 && cidrNum <= 32) {
+                                    // 检查是否在同一网段
+                                    if (!isSameSubnet(startIP, endIP)) {
+                                        errorText = '起始IP和结束IP必须在同一网段';
+                                    } else if (ipToNumber(startIP) > ipToNumber(endIP)) {
+                                        errorText = '起始IP不能大于结束IP';
+                                    } else {
+                                        // 检查IP数量是否与服务器数量相同
+                                        const ipCount = countIPsInRange(startIP, endIP);
+                                        const serverCount = connectedServers.length;
+
+                                        if (ipCount !== serverCount) {
+                                            // 计算正确的IP范围示例
+                                            const firstServer = connectedServers[0];
+                                            const lastServer = connectedServers[serverCount - 1];
+                                            errorText = `IP地址数量(${ipCount})与服务器数量(${serverCount})不匹配，应为: ${firstServer}-${lastServer}/24`;
+                                        } else {
+                                            isValid = true;
+                                        }
+                                    }
+                                } else {
+                                    errorText = 'CIDR必须在0-32之间';
+                                }
+                            } else {
+                                errorText = 'IP地址格式错误';
+                            }
+                        } else {
+                            errorText = '范围格式错误，应包含两个IP地址';
+                        }
+                    } else {
+                        errorText = '格式错误，应为: 192.168.2.1-192.168.2.20/24';
+                    }
+                } else {
+                    errorText = '多服务器必须使用范围格式: 192.168.2.1-192.168.2.20/24';
+                }
+            } else {
+                // 单服务器：必须是单个IP格式 192.168.1.100/24
+                if (value.includes('-')) {
+                    errorText = '单服务器不能使用范围格式，应为: 192.168.1.100/24';
+                } else {
+                    const parts = value.split('/');
+                    if (parts.length === 2) {
+                        const [ip, cidr] = parts;
+                        if (isValidIP(ip.trim())) {
+                            const cidrNum = parseInt(cidr);
+                            if (cidrNum >= 0 && cidrNum <= 32) {
+                                isValid = true;
+                            } else {
+                                errorText = 'CIDR必须在0-32之间';
+                            }
+                        } else {
+                            errorText = 'IP地址格式错误';
+                        }
+                    } else {
+                        errorText = '格式错误，应为: 192.168.1.100/24';
+                    }
+                }
+            }
+
+            if (isValid) {
+                input.classList.remove('error');
+                errorMsg.classList.remove('show');
+            } else {
+                input.classList.add('error');
+                errorMsg.textContent = errorText;
+                errorMsg.classList.add('show');
+            }
+
+            return isValid;
+        }
+
+        function updateCustomMultiselectDisplay(multiselect) {
+            const display = multiselect.querySelector('.custom-multiselect-display span:first-child');
+            const checkboxes = multiselect.querySelectorAll('input[type="checkbox"]:checked');
+
+            if (checkboxes.length > 0) {
+                const selectedNics = Array.from(checkboxes).map(cb => cb.value);
+                display.textContent = selectedNics.join(', ');
+                display.classList.remove('placeholder');
+                // 清除错误高亮
+                multiselect.querySelector('.custom-multiselect-display').style.borderColor = '';
+            } else {
+                display.textContent = '请选择网卡';
+                display.classList.add('placeholder');
+            }
+        }
+
+        function updateNicSelection(selectElement) {
+            // 这个函数现在不再使用，保留以防兼容性问题
+        }
+
+        function updateAllNicAvailability() {
+            const groups = document.querySelectorAll('.bond-group');
+
+            // 收集所有已选择的网卡（按Bond分组）
+            const selectedNicsByGroup = new Map();
+            groups.forEach(group => {
+                const multiselect = group.querySelector('.custom-multiselect');
+                const checkboxes = multiselect.querySelectorAll('input[type="checkbox"]:checked');
+                const selectedNics = Array.from(checkboxes).map(cb => cb.value);
+                selectedNicsByGroup.set(group.id, new Set(selectedNics));
+            });
+
+            // 更新每个Bond配置的网卡可用性
+            groups.forEach(group => {
+                const multiselect = group.querySelector('.custom-multiselect');
+                const currentGroupId = group.id;
+                const currentSelected = selectedNicsByGroup.get(currentGroupId);
+
+                // 收集其他Bond已选择的网卡
+                const otherSelectedNics = new Set();
+                selectedNicsByGroup.forEach((nics, groupId) => {
+                    if (groupId !== currentGroupId) {
+                        nics.forEach(nic => otherSelectedNics.add(nic));
+                    }
+                });
+
+                // 更新选项的可用性
+                const options = multiselect.querySelectorAll('.custom-multiselect-option');
+                options.forEach(option => {
+                    const value = option.dataset.value;
+                    const checkbox = option.querySelector('input[type="checkbox"]');
+
+                    if (otherSelectedNics.has(value)) {
+                        option.classList.add('disabled');
+                        if (!checkbox.checked) {
+                            checkbox.disabled = true;
+                        }
+                    } else {
+                        option.classList.remove('disabled');
+                        checkbox.disabled = false;
+                    }
+                });
+            });
+        }
+
+        let pendingBondConfigs = null;
+        let pendingCheckResult = null;
+
+        async function applyConfiguration() {
+            try {
+                // 隐藏之前的确认框
+                document.getElementById('confirmationBox').classList.remove('show');
+
+                // 验证所有Bond配置是否选择了网卡
+                const groups = document.querySelectorAll('.bond-group');
+                let missingNics = false;
+                groups.forEach((group, index) => {
+                    const multiselect = group.querySelector('.custom-multiselect');
+                    const checkboxes = multiselect.querySelectorAll('input[type="checkbox"]:checked');
+                    const display = multiselect.querySelector('.custom-multiselect-display');
+
+                    if (checkboxes.length === 0) {
+                        missingNics = true;
+                        // 飘红显示
+                        display.classList.add('nic-selection-error');
+                    } else {
+                        display.classList.remove('nic-selection-error');
+                    }
+                });
+
+                if (missingNics) {
+                    showConfirmation('error', '配置错误', '请为每个Bond配置选择至少一个网卡接口', false);
+                    return;
+                }
+
+                // 验证所有IP地址格式
+                const ipInputs = document.querySelectorAll('.bond-ip');
+                let hasError = false;
+                ipInputs.forEach(input => {
+                    if (input.value.trim() && !validateBondIP(input)) {
+                        hasError = true;
+                    }
+                });
+
+                if (hasError) {
+                    showConfirmation('error', '配置错误', '请检查IP地址格式是否正确', false);
+                    return;
+                }
+
+                const bondConfigs = getBondConfigurations();
+
+                if (bondConfigs.length === 0) {
+                    showConfirmation('error', '配置错误', '请至少添加一个Bond配置', false);
+                    return;
+                }
+
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+
+                // 禁用应用按钮
+                const applyBtn = document.getElementById('applyBtn');
+                applyBtn.disabled = true;
+                applyBtn.textContent = '⏳ 检查中...';
+
+                try {
+                    // 先检查网络服务状态
+                    const checkResponse = await fetch(`${API_BASE}/api/network-tools/bond/generate/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            servers: connectedServers,
+                            username: username,
+                            password: password
+                        })
+                    });
+
+                    const checkResult = await checkResponse.json();
+
+                    if (checkResult.status !== 'success') {
+                        throw new Error(checkResult.error || '检查网络服务失败');
+                    }
+
+                    // 保存配置和检查结果，等待用户确认
+                    pendingBondConfigs = bondConfigs;
+                    pendingCheckResult = checkResult;
+
+                    // 构建提示信息
+                    let message = `即将开始配置Bond网络聚合：\n\n`;
+                    message += `服务器数量: ${connectedServers.length} 台\n`;
+                    message += `Bond配置: ${bondConfigs.length} 个\n\n`;
+                    message += '网络服务检查结果:\n';
+
+                    let hasWarning = false;
+                    let hasError = false;
+
+                    checkResult.results.forEach(result => {
+                        message += `\n${result.server}:\n`;
+                        message += `  ${result.recommendation}\n`;
+
+                        if (result.action === 'warning') {
+                            hasWarning = true;
+                            // 如果有NetworkManager冲突，提示将自动卸载
+                            if (result.has_networkmanager && result.networkmanager_active) {
+                                message += `  操作: 系统将自动卸载NetworkManager\n`;
+                            }
+                        } else if (result.action === 'error') {
+                            hasError = true;
+                        }
+                    });
+
+                    if (checkResult.warnings && checkResult.warnings.length > 0) {
+                        message += '\n⚠️ 警告:\n';
+                        checkResult.warnings.forEach(warning => {
+                            message += `  ${warning}\n`;
+                        });
+                    }
+
+                    if (!checkResult.can_proceed || hasError) {
+                        showConfirmation('error', '无法继续配置', message, false);
+                        return;
+                    }
+
+                    message += '\n点击"确定继续"开始配置，点击"取消"放弃配置。';
+                    message += '\n\n⚠️ 注意：配置过程中请勿关闭SSH连接！';
+
+                    const boxType = hasWarning ? 'warning' : 'normal';
+                    showConfirmation(boxType, '确认配置', message, true);
+
+                } finally {
+                    applyBtn.disabled = false;
+                    applyBtn.textContent = '🚀 应用配置';
+                }
+
+            } catch (error) {
+                showConfirmation('error', '配置失败', error.message, false);
+                const applyBtn = document.getElementById('applyBtn');
+                applyBtn.disabled = false;
+                applyBtn.textContent = '🚀 应用配置';
+            }
+        }
+
+        function showConfirmation(type, title, content, showActions) {
+            const box = document.getElementById('confirmationBox');
+            const titleEl = document.getElementById('confirmationTitle');
+            const contentEl = document.getElementById('confirmationContent');
+            const actionsEl = box.querySelector('.confirmation-actions');
+
+            // 设置样式
+            box.className = 'confirmation-box show';
+            if (type === 'error') {
+                box.classList.add('error');
+                titleEl.textContent = '❌ ' + title;
+            } else if (type === 'warning') {
+                titleEl.textContent = '⚠️ ' + title;
+            } else {
+                titleEl.textContent = '✓ ' + title;
+            }
+
+            contentEl.textContent = content;
+            actionsEl.style.display = showActions ? 'flex' : 'none';
+
+            // 滚动到确认框
+            box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function cancelConfiguration() {
+            document.getElementById('confirmationBox').classList.remove('show');
+            pendingBondConfigs = null;
+            pendingCheckResult = null;
+            window.pendingClearOperation = false;
+            window.pendingResetOperation = false;
+        }
+
+        async function proceedWithConfiguration() {
+            // 检查是清除操作
+            if (window.pendingClearOperation) {
+                await executeClearBonds();
+                return;
+            }
+
+            // 检查是重置操作
+            if (window.pendingResetOperation) {
+                executeReset();
+                return;
+            }
+
+            // 应用Bond配置操作
+            if (!pendingBondConfigs || !pendingCheckResult) {
+                return;
+            }
+
+            const applyBtn = document.getElementById('applyBtn');
+            applyBtn.disabled = true;
+            applyBtn.textContent = '⏳ 配置中...';
+
+            // 隐藏确认框
+            document.getElementById('confirmationBox').classList.remove('show');
+
+            // 显示日志区域
+            document.getElementById('resultSection').classList.add('show');
+            document.getElementById('logOutput').innerHTML = '';
+
+            addLog(`开始配置 ${connectedServers.length} 台服务器...`, 'info');
+            addLog(`Bond配置数量: ${pendingBondConfigs.length}`, 'info');
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                // 逐个服务器应用配置，实现实时日志显示
+                let totalSuccess = 0;
+                let totalPartial = 0;
+                let totalError = 0;
+
+                for (let serverIndex = 0; serverIndex < connectedServers.length; serverIndex++) {
+                    const server = connectedServers[serverIndex];
+                    addLog(`\n========== 配置服务器 #${serverIndex + 1}: ${server} ==========`, 'info');
+
+                    try {
+                        // 为当前服务器解析Bond配置（处理IP范围分配）
+                        const bondConfigsForServer = parseBondConfigsForServer(pendingBondConfigs, serverIndex);
+
+                        // 显示IP分配信息
+                        bondConfigsForServer.forEach(config => {
+                            if (config.ip) {
+                                addLog(`Bond ${config.name} 分配IP: ${config.ip}`, 'info');
+                            }
+                        });
+
+                        const response = await fetch(`${API_BASE}/api/network-tools/bond/apply/`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                servers: [server],  // 只发送单个服务器
+                                username: username,
+                                password: password,
+                                bond_configs: bondConfigsForServer  // 使用已分配IP的配置
+                            })
+                        });
+
+                        const result = await response.json();
+
+                        if (result.status === 'completed' && result.results.length > 0) {
+                            const serverResult = result.results[0];
+
+                            if (serverResult.status === 'error') {
+                                addLog(`✗ 连接失败: ${serverResult.error}`, 'error');
+                                totalError++;
+                            } else {
+                                let serverSuccess = 0;
+                                let serverFailed = 0;
+
+                                serverResult.bonds.forEach(bond => {
+                                    if (bond.success) {
+                                        addLog(`✓ ${bond.message}`, 'success');
+                                        serverSuccess++;
+                                    } else {
+                                        addLog(`✗ ${bond.name}: ${bond.message}`, 'error');
+                                        serverFailed++;
+                                    }
+
+                                    // 显示详细日志
+                                    if (bond.logs && bond.logs.length > 0) {
+                                        addLog(`\n--- 详细日志 (${bond.name}) ---`, 'info');
+                                        bond.logs.forEach(logEntry => {
+                                            addDetailedLog(logEntry);
+                                        });
+                                        addLog(`--- 日志结束 ---\n`, 'info');
+                                    }
+                                });
+
+                                if (serverFailed === 0) {
+                                    totalSuccess++;
+                                } else if (serverSuccess > 0) {
+                                    totalPartial++;
+                                } else {
+                                    totalError++;
+                                }
+                            }
+                        } else {
+                            throw new Error(result.error || '配置失败');
+                        }
+                    } catch (error) {
+                        addLog(`✗ 服务器 ${server} 配置失败: ${error.message}`, 'error');
+                        totalError++;
+                    }
+                }
+
+                // 显示汇总
+                addLog('\n========== 汇总 ==========', 'info');
+                addLog(`总计: ${connectedServers.length} 台服务器`, 'info');
+                addLog(`成功: ${totalSuccess} 台`, 'success');
+                if (totalPartial > 0) {
+                    addLog(`部分成功: ${totalPartial} 台`, 'warning');
+                }
+                if (totalError > 0) {
+                    addLog(`失败: ${totalError} 台`, 'error');
+                }
+
+                // 添加检查提醒
+                if (totalSuccess > 0 || totalPartial > 0) {
+                    addLog('\n========== 重要提醒 ==========', 'warning');
+                    addLog('⚠️ 请检查以下内容：', 'warning');
+                    addLog('1. 检查配置文件: /etc/sysconfig/network-scripts/', 'info');
+                    addLog('   - 确认Bond配置文件 (ifcfg-bond0等) 正确生成', 'info');
+                    addLog('   - 确认slave网卡配置文件 (ifcfg-ens34等) 正确生成', 'info');
+                    addLog('2. 检查网络连接状态:', 'info');
+                    addLog('   - 执行: ip a 查看Bond接口状态', 'info');
+                    addLog('   - 执行: cat /proc/net/bonding/bond0 查看Bond详情', 'info');
+                    addLog('   - 测试网络连通性', 'info');
+                }
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+                showConfirmation('error', '配置失败', error.message, false);
+            } finally {
+                applyBtn.disabled = false;
+                applyBtn.textContent = '🚀 应用配置';
+                pendingBondConfigs = null;
+                pendingCheckResult = null;
+            }
+        }
+
+        function resetAll() {
+            // 显示确认提示框
+            const message = `即将重置所有配置：\n\n`;
+            const details = `- 清空所有Bond配置\n`;
+            const details2 = `- 断开SSH连接\n`;
+            const details3 = `- 清空网络状态显示\n\n`;
+            const confirm = `点击"确定继续"开始重置，点击"取消"放弃操作。`;
+
+            const fullMessage = message + details + details2 + details3 + confirm;
+
+            // 保存重置操作的标记
+            window.pendingResetOperation = true;
+
+            showConfirmation('warning', '确认重置配置', fullMessage, true);
+        }
+
+        function executeReset() {
+            // 清空Bond配置
+            document.getElementById('bondGroupsContainer').innerHTML = '';
+
+            // 恢复Bond配置提示
+            const bondConfigHint = document.getElementById('bondConfigHint');
+            if (bondConfigHint) {
+                bondConfigHint.style.display = '';
+            }
+
+            // 重置连接状态
+            document.getElementById('connectionStatus').className = 'connection-status disconnected';
+            document.getElementById('statusText').textContent = '未连接';
+
+            // 清空服务器容器
+            const container = document.getElementById('serversContainer');
+            container.innerHTML = '<div style="padding: 20px; text-align: center; color: #999; background: white; border-radius: 8px;">暂无数据</div>';
+
+            // 隐藏折叠控制按钮
+            document.getElementById('collapseControls').style.display = 'none';
+
+            // 隐藏结果区域
+            document.getElementById('resultSection').classList.remove('show');
+
+            // 隐藏确认框
+            document.getElementById('confirmationBox').classList.remove('show');
+
+            // 禁用按钮
+            document.getElementById('addBondBtn').disabled = true;
+            document.getElementById('applyBtn').disabled = true;
+            document.getElementById('clearBondsBtn').disabled = true;
+
+            // 重置变量
+            bondGroupCounter = 0;
+            availableNics = [];
+            connectedServers = [];
+            serversData = [];
+            window.pendingResetOperation = false;
+        }
+
+        async function clearAllBonds() {
+            // 显示确认提示框
+            const message = `即将清除所有服务器上的Bond配置：\n\n`;
+            const details = `服务器数量: ${connectedServers.length} 台\n\n`;
+            const warning = `⚠️ 警告：\n`;
+            const warningDetails = `- 此操作将删除所有Bond接口\n`;
+            const warningDetails2 = `- 此操作将删除所有Bond配置文件\n`;
+            const warningDetails3 = `- 此操作可能导致网络连接中断\n\n`;
+            const confirm = `点击"确定继续"开始清除，点击"取消"放弃操作。`;
+
+            const fullMessage = message + details + warning + warningDetails + warningDetails2 + warningDetails3 + confirm;
+
+            // 保存清除操作的标记
+            window.pendingClearOperation = true;
+
+            showConfirmation('warning', '确认清除Bond配置', fullMessage, true);
+        }
+
+        async function executeClearBonds() {
+            const clearBtn = document.getElementById('clearBondsBtn');
+            clearBtn.disabled = true;
+            clearBtn.textContent = '⏳ 清除中...';
+
+            // 隐藏确认框
+            document.getElementById('confirmationBox').classList.remove('show');
+
+            // 显示日志区域
+            document.getElementById('resultSection').classList.add('show');
+            document.getElementById('logOutput').innerHTML = '';
+
+            addLog(`开始清除 ${connectedServers.length} 台服务器的Bond配置...`, 'info');
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                // 逐个服务器清除配置，实现实时日志显示
+                let totalSuccess = 0;
+                let totalError = 0;
+
+                for (const server of connectedServers) {
+                    addLog(`\n========== 清除服务器: ${server} ==========`, 'info');
+
+                    try {
+                        const response = await fetch(`${API_BASE}/api/network-tools/bond/clear/`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                servers: [server],  // 只发送单个服务器
+                                username: username,
+                                password: password
+                            })
+                        });
+
+                        const result = await response.json();
+
+                        if (result.status === 'completed' && result.results.length > 0) {
+                            const serverResult = result.results[0];
+
+                            if (serverResult.status === 'error') {
+                                addLog(`✗ 连接失败: ${serverResult.error}`, 'error');
+                                totalError++;
+                            } else if (serverResult.status === 'failed') {
+                                addLog(`✗ ${serverResult.message}`, 'error');
+                                if (serverResult.details && serverResult.details.length > 0) {
+                                    serverResult.details.forEach(detail => {
+                                        addLog(`  ${detail}`, 'info');
+                                    });
+                                }
+                                totalError++;
+                            } else {
+                                addLog(`✓ ${serverResult.message}`, 'success');
+                                if (serverResult.details && serverResult.details.length > 0) {
+                                    serverResult.details.forEach(detail => {
+                                        addLog(`  ${detail}`, 'info');
+                                    });
+                                }
+                                totalSuccess++;
+                            }
+
+                            // 显示详细日志
+                            if (serverResult.logs && serverResult.logs.length > 0) {
+                                addLog(`\n--- 详细日志 ---`, 'info');
+                                serverResult.logs.forEach(logEntry => {
+                                    addDetailedLog(logEntry);
+                                });
+                                addLog(`--- 日志结束 ---\n`, 'info');
+                            }
+                        } else {
+                            throw new Error(result.error || '清除失败');
+                        }
+                    } catch (error) {
+                        addLog(`✗ 服务器 ${server} 清除失败: ${error.message}`, 'error');
+                        totalError++;
+                    }
+                }
+
+                // 显示汇总
+                addLog('\n========== 汇总 ==========', 'info');
+                addLog(`总计: ${connectedServers.length} 台服务器`, 'info');
+                addLog(`成功: ${totalSuccess} 台`, 'success');
+                if (totalError > 0) {
+                    addLog(`失败: ${totalError} 台`, 'error');
+                }
+
+                // 刷新网络状态
+                if (totalSuccess > 0) {
+                    addLog('\n正在刷新网络状态...', 'info');
+                    await connectSSH();
+                    addLog('✓ 网络状态已刷新', 'success');
+                }
+            } catch (error) {
+                addLog(`错误: ${error.message}`, 'error');
+                showConfirmation('error', '清除失败', error.message, false);
+            } finally {
+                clearBtn.disabled = false;
+                clearBtn.textContent = '🗑️ 清除所有Bond';
+                window.pendingClearOperation = false;
+            }
+        }
+    </script>
+</body>
+</html>
