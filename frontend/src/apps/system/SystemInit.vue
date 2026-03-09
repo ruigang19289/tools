@@ -176,7 +176,7 @@ const API_BASE = `/api/v1/system/system-init`
 // Form data
 const hostsText = ref('')
 const port = ref(22)
-const username = ref('')
+const username = ref('root')
 const password = ref('')
 const hostnamePrefix = ref('node')
 

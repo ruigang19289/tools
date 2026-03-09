@@ -235,7 +235,7 @@ const API_BASE = `/network/iperf3`
 const config = reactive({
   hostsText: '',
   port: 22,
-  username: '',
+  username: 'root',
   password: '',
   testNetwork: '',
   testMode: 'one2one',

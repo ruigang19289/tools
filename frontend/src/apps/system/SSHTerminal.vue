@@ -203,14 +203,14 @@ import '@xterm/xterm/css/xterm.css'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 // Connection
-const connection = reactive({ host: '', port: '22', username: '', password: '' })
+const connection = reactive({ host: '', port: '22', username: 'root', password: '' })
 const connecting = ref(false)
 const sessions = ref([])
 const activeTabId = ref(null)
 const notification = reactive({ show: false, message: '', type: 'info' })
 
 // File Manager Connection
-const fmConnection = reactive({ host: '', port: '22', username: '', password: '' })
+const fmConnection = reactive({ host: '', port: '22', username: 'root', password: '' })
 const fmConnecting = ref(false)
 const fmSessionId = ref(null)
 

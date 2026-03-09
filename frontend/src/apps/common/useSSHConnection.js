@@ -9,7 +9,7 @@ export function useSSHConnection(defaultPort = '22') {
   const connection = reactive({
     host: '',
     port: defaultPort,
-    username: '',
+    username: 'root',
     password: ''
   })
 

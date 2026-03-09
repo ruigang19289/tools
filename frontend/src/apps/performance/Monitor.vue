@@ -129,7 +129,7 @@ import ReconnectDialog from '@/components/ReconnectDialog.vue'
 
 // 状态
 const serverAddress = ref('')
-const username = ref('')
+const username = ref('root')
 const password = ref('')
 const isConnecting = ref(false)
 const activeHost = ref(null)

@@ -114,7 +114,7 @@ const API_BASE = `/api/v1/system/ssh`
 // Configuration
 const config = reactive({
   host: '',
-  username: '',
+  username: 'root',
   password: '',
   port: 22
 })

@@ -207,7 +207,7 @@ const hostsText = ref('')
 
 // Configuration
 const config = reactive({
-  username: '',
+  username: 'root',
   password: '',
   testCidr: '',
   duration: 10,

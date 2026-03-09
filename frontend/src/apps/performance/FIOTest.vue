@@ -370,7 +370,7 @@ const hostsText = ref('')
 
 // Configuration
 const config = reactive({
-  username: '',
+  username: 'root',
   password: '',
   port: 22
 })

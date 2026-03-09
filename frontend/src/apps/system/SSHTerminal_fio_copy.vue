@@ -256,7 +256,7 @@ const hostsText = ref('')
 
 // Configuration
 const config = reactive({
-  username: '',
+  username: 'root',
   password: '',
   port: 22
 })
@@ -275,7 +275,7 @@ const connectedHosts = ref([])
 // File Manager section
 const hostsTextFile = ref('')
 const configFile = reactive({
-  username: '',
+  username: 'root',
   password: '',
   port: 22  // SFTP 默认端口
 })

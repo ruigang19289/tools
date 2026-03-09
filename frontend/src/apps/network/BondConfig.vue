@@ -281,7 +281,7 @@ const API_BASE = `/network/bond`
 
 const hostsText = ref('')
 const port = ref(22)
-const username = ref('')
+const username = ref('root')
 const password = ref('')
 const loading = ref(false)
 const refreshing = ref(false)
