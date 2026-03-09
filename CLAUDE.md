@@ -459,3 +459,13 @@ frontend/src/config/
 **关键文件**:
 - `frontend/src/apps/system/SystemInit.vue` - 添加IP解析函数
 
+### 2026-03-09: 系统监控增加SSH端口配置
+
+**功能实现**:
+1. **前端增加端口输入**
+   - 头部增加端口输入框，默认值22
+   - 连接时传递端口参数到后端
+
+**关键文件**:
+- `frontend/src/apps/performance/Monitor.vue` - 增加端口配置
+
