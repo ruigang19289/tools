@@ -131,17 +131,17 @@
               </select>
             </div>
             <div class="form-group">
-              <label>
-                <input type="checkbox" v-model="fileBackup"> 目标文件备份
-              </label>
-            </div>
-            <div class="form-group">
               <label>源路径:</label>
               <input type="text" v-model="sourcePath" :placeholder="fileAction === 'push' ? '/path/to/local/file' : '/path/on/remote'">
             </div>
             <div class="form-group">
               <label>目标路径:</label>
               <input type="text" v-model="destPath" placeholder="/path/on/remote">
+            </div>
+            <div class="form-group">
+              <label>
+                <input type="checkbox" v-model="fileBackup"> 目标文件备份
+              </label>
             </div>
             <button
               class="btn btn-primary"
