@@ -296,10 +296,10 @@ const useModule = (mod) => {
     service: 'name: nginx\nstate: started',
     systemd: 'name: nginx\nstate: started',
     selinux: 'state: disabled',
-    firewalld: 'service: httpd\npermanent: yes\nstate: enabled',
+    firewalld: 'service: httpd\nstate: enabled',
     template: 'src: template.j2\ndest: /path/to/file',
     sync: 'src: /path/to/dest\ndest: /path/on/remote/',
-    cron: 'name: "backup job"\nminute: "0"\nhour: "2"\njob: "/path/to/backup.sh"'
+    cron: 'name: backup\nminute: "0"\nhour: "2"\njob: /path/to/backup.sh'
   }
   
   command.value = templates[mod.name] || ''

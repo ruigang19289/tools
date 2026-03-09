@@ -328,6 +328,16 @@ def run_playbook(request):
                         hour = task.get('hour', '*')
                         job = task.get('job', '')
                         cmd = f'(crontab -l 2>/dev/null | grep -v "{name}"; echo "{minute} {hour} * * * {job}") | crontab -'
+                    elif task_module == 'firewalld':
+                        service = task.get('service', '')
+                        state = task.get('state', 'enabled')
+                        permanent = task.get('permanent', 'yes')
+                        if service:
+                            cmd = f'firewall-cmd --{"permanent" if permanent == "yes" else ""} --{"add-service" if state == "enabled" else "remove-service"}={service}'
+                            if permanent == 'yes':
+                                cmd += ' && firewall-cmd --reload'
+                        else:
+                            cmd = 'echo "firewalld: service is required"'
                     else:
                         cmd = task_cmd if task_cmd else f'echo "Unknown module: {task_module}"'
                     
@@ -388,7 +398,7 @@ def parse_playbook(playbook_text):
             current_task['module'] = module_name
         # 模块属性
         elif stripped.startswith('name:') and current_task and current_task.get('module') != 'shell':
-            if current_task.get('module') in ['yum', 'copy', 'file', 'service', 'cron']:
+            if current_task.get('module') in ['yum', 'copy', 'file', 'service', 'cron', 'firewalld']:
                 current_task['name'] = stripped.replace('name:', '').strip()
         elif stripped.startswith('state:') and current_task:
             current_task['state'] = stripped.replace('state:', '').strip()
@@ -406,6 +416,8 @@ def parse_playbook(playbook_text):
             current_task['minute'] = stripped.replace('minute:', '').strip()
         elif stripped.startswith('hour:') and current_task and current_task.get('module') == 'cron':
             current_task['hour'] = stripped.replace('hour:', '').strip()
+        elif stripped.startswith('service:') and current_task and current_task.get('module') == 'firewalld':
+            current_task['service'] = stripped.replace('service:', '').strip()
         # Shell/Command 模块的命令
         elif stripped.startswith('shell:') or stripped.startswith('command:'):
             cmd = stripped.replace('shell:', '').replace('command:', '').strip()
