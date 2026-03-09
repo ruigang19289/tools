@@ -370,6 +370,9 @@ const validateHosts = async () => {
       addOutput(`${ip}: 验证失败 - ${e.message}`, 'error')
     }
   }
+  
+  // 验证完成后默认全选所有主机
+  selectAll()
 }
 
 const toggleHost = (ip) => {
