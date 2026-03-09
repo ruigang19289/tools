@@ -607,6 +607,11 @@ const downloadOutput = () => {
   margin-bottom: 4px;
 }
 
+.form-group input[type="checkbox"] {
+  width: auto;
+  margin-right: 8px;
+}
+
 .form-group input,
 .form-group textarea,
 .form-group select {
