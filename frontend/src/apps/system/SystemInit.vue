@@ -213,17 +213,53 @@ const canStartSingle = computed(() => {
 })
 
 // Methods
+const parseIPRange = (input) => {
+  const ips = []
+  const lines = input.split('\n').map(l => l.trim()).filter(l => l)
+  
+  for (const line of lines) {
+    // CIDR 格式: 192.168.1.0/24
+    if (line.includes('/')) {
+      const match = line.match(/^(\d+\.\d+\.\d+\.)(\d+)\/(\d+)$/)
+      if (match) {
+        const prefix = match[1]
+        const base = parseInt(match[2])
+        const bits = parseInt(match[3])
+        const count = Math.pow(2, 32 - bits)
+        for (let i = 0; i < count; i++) {
+          ips.push(prefix + (base + i))
+        }
+      }
+      continue
+    }
+    
+    // IP范围格式: 192.168.1.1-192.168.1.10 或 192.168.1.1-10
+    const rangeMatch = line.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/)
+    if (rangeMatch) {
+      const prefix = rangeMatch[1]
+      const start = parseInt(rangeMatch[2])
+      const end = parseInt(rangeMatch[3])
+      for (let i = start; i <= end; i++) {
+        ips.push(prefix + i)
+      }
+      continue
+    }
+    
+    // 单个IP
+    ips.push(line)
+  }
+  
+  return ips
+}
+
 const getValidHosts = () => {
-  return hostsText.value
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line)
-    .map(ip => ({
-      ip,
-      username: username.value || 'root',
-      password: password.value,
-      port: port.value
-    }))
+  const allIPs = parseIPRange(hostsText.value)
+  return allIPs.map(ip => ({
+    ip,
+    username: username.value || 'root',
+    password: password.value,
+    port: port.value
+  }))
 }
 
 const getValidHostnames = () => {
