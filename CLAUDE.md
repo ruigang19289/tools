@@ -469,3 +469,27 @@ frontend/src/config/
 **关键文件**:
 - `frontend/src/apps/performance/Monitor.vue` - 增加端口配置
 
+### 2026-03-09: Ansible管理平台
+
+**功能实现**:
+1. **主机管理**
+   - 支持IP、IP段(192.168.1.1-10)、CIDR(192.168.1.0/24)格式
+   - 验证主机SSH连接
+
+2. **批量命令执行**
+   - 支持模块: shell, command, ping, setup
+   - ping和setup模块无需输入命令
+
+3. **文件分发**
+   - 推送/拉取文件
+   - 支持备份原文件
+
+4. **Playbook执行**
+   - YAML语法验证
+   - 常用模块快捷入口
+
+**关键文件**:
+- `frontend/src/apps/system/Ansible.vue` - 前端界面
+- `backend/apps/system/ansible/views.py` - 后端API
+- `backend/apps/system/ansible/urls.py` - 路由配置
+
