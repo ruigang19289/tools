@@ -393,3 +393,31 @@ frontend/src/config/
 **关键文件**:
 - `frontend/src/views/Home.vue` - 调整模块位置
 
+### 2026-03-09: 系统初始化主机名自动生成优化
+
+**功能实现**:
+1. **主机名自动生成逻辑**
+   - 基于主机前缀 + IP排序序号自动生成主机名
+   - IP按数值大小排序（如 192.168.1.50 < 192.168.1.100 < 192.168.1.200）
+   - 序号从1开始，保留2位（如 node01, node02, node03）
+
+2. **前端界面修改**
+   - "主机名列表"改为"主机名前缀"输入框
+   - 默认前缀: node
+   - 移除手动输入主机名列表的功能
+
+3. **后端逻辑修改**
+   - 新增 `ip_to_int(ip)`: IP转整数用于排序
+   - 新增 `sort_hosts_by_ip(hosts)`: 按IP数值排序
+   - 修改 `generate_hostname_from_ip(ip, index, prefix)`: 支持自定义前缀
+   - 修改 `full_init` 和 `modify_hostnames`: 自动排序并生成主机名
+
+**关键文件**:
+- `frontend/src/apps/system/SystemInit.vue` - 前端界面修改
+- `backend/apps/system/system_init/views.py` - 后端逻辑修改
+
+**使用示例**:
+- 输入IP: 192.168.1.200, 192.168.1.50, 192.168.1.100
+- 前缀: node
+- 输出: node01 (192.168.1.50), node02 (192.168.1.100), node03 (192.168.1.200)
+
