@@ -130,7 +130,7 @@
                 <option value="pull">拉取文件</option>
               </select>
             </div>
-            <div class="form-group">
+            <div class="form-group checkbox-label">
               <label>
                 <input type="checkbox" v-model="fileBackup"> 目标文件备份
               </label>
@@ -605,6 +605,17 @@ const downloadOutput = () => {
   font-size: 13px;
   color: #666;
   margin-bottom: 4px;
+}
+
+.checkbox-label label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
 }
 
 .form-group input,
