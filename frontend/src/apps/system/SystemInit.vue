@@ -279,7 +279,7 @@ const executeFullInit = async () => {
   await runTask('全部初始化', '/full-init', {
     hostname_prefix: hostnamePrefix.value,
     ntp_servers: config.ntpServers,
-    management_cidr: autoNetworkCidr,
+    management_cidr: autoNetworkCidr.value,
     harden_etcd: config.hardenEtcd,
     harden_postgresql: config.hardenPostgresql,
     harden_elasticsearch: config.hardenElasticsearch
@@ -312,7 +312,7 @@ const configureFirewall = async () => {
 }
 
 const applySecurityHardening = async () => {
-  if (!autoNetworkCidr) {
+  if (!autoNetworkCidr.value) {
     showNotification('请输入管理网络 CIDR', 'error')
     return
   }
@@ -322,34 +322,34 @@ const applySecurityHardening = async () => {
   const iptablesCommands = [] // 收集所有 iptables 命令
 
   addLog('===== 安全加固 iptables 命令 =====', 'info')
-  addLog(`管理网络 CIDR: ${autoNetworkCidr}`, 'info')
+  addLog(`管理网络 CIDR: ${autoNetworkCidr.value}`, 'info')
   addLog('', 'info')
 
   // Etcd 端口
   if (config.hardenEtcd) {
     addLog('# ===== Etcd (2379-2380) =====', 'info')
-    generateIptablesCommands(autoNetworkCidr, [2379, 2380], 'tcp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr.value, [2379, 2380], 'tcp', iptablesCommands)
     addLog('', 'info')
   }
 
   // PostgreSQL 端口
   if (config.hardenPostgresql) {
     addLog('# ===== PostgreSQL (5432-5433) =====', 'info')
-    generateIptablesCommands(autoNetworkCidr, [5432, 5433], 'tcp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr.value, [5432, 5433], 'tcp', iptablesCommands)
     addLog('', 'info')
   }
 
   // Elasticsearch 端口
   if (config.hardenElasticsearch) {
     addLog('# ===== Elasticsearch (9200-9300) =====', 'info')
-    generateIptablesCommands(autoNetworkCidr, [9200, 9300], 'tcp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr.value, [9200, 9300], 'tcp', iptablesCommands)
     addLog('', 'info')
   }
 
   // Chronyd 端口
   if (config.hardenChronyd) {
     addLog('# ===== Chronyd (123) - UDP =====', 'info')
-    generateIptablesCommands(autoNetworkCidr, [123], 'udp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr.value, [123], 'udp', iptablesCommands)
     const conntrackCmd = 'iptables -I INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
     addLog(conntrackCmd, 'success')
     iptablesCommands.push(conntrackCmd)
@@ -361,7 +361,7 @@ const applySecurityHardening = async () => {
     const ports = config.blockPorts.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p))
     if (ports.length > 0) {
       addLog(`# ===== 自定义封禁端口 (${config.blockPorts}) =====`, 'info')
-      generateIptablesCommands(autoNetworkCidr, ports, 'tcp', iptablesCommands)
+      generateIptablesCommands(autoNetworkCidr.value, ports, 'tcp', iptablesCommands)
       addLog('', 'info')
     }
   }
@@ -385,7 +385,7 @@ const applySecurityHardening = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hosts: validHosts,
-        management_cidr: autoNetworkCidr,
+        management_cidr: autoNetworkCidr.value,
         harden_etcd: config.hardenEtcd,
         harden_postgresql: config.hardenPostgresql,
         harden_elasticsearch: config.hardenElasticsearch,
