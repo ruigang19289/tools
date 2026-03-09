@@ -67,7 +67,8 @@
           </div>
           <div class="form-group">
             <label>管理网络 CIDR:</label>
-            <input type="text" v-model="config.managementCidr" placeholder="10.255.0.0/24">
+            <input type="text" :value="autoNetworkCidr" readonly class="readonly">
+            <small>自动根据主机IP计算</small>
           </div>
         </div>
       </div>
@@ -183,12 +184,31 @@ const hostnamePrefix = ref('node')
 // Config
 const config = reactive({
   ntpServers: 'ntp.aliyun.com',
-  managementCidr: '10.255.0.0/24',
   hardenEtcd: true,
   hardenPostgresql: true,
   hardenElasticsearch: true,
   hardenChronyd: false,
   blockPorts: ''
+})
+
+// Auto calculate network CIDR based on hosts
+const autoNetworkCidr = computed(() => {
+  const hosts = getValidHosts()
+  if (!hosts.length) return '10.255.0.0/24'
+  
+  const subnets = {}
+  hosts.forEach(h => {
+    const parts = h.ip.split('.')
+    if (parts.length === 4) {
+      const subnet = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`
+      subnets[subnet] = (subnets[subnet] || 0) + 1
+    }
+  })
+  
+  if (Object.keys(subnets).length > 0) {
+    return Object.keys(subnets).reduce((a, b) => subnets[a] > subnets[b] ? a : b)
+  }
+  return '10.255.0.0/24'
 })
 
 // State
@@ -259,7 +279,7 @@ const executeFullInit = async () => {
   await runTask('全部初始化', '/full-init', {
     hostname_prefix: hostnamePrefix.value,
     ntp_servers: config.ntpServers,
-    management_cidr: config.managementCidr,
+    management_cidr: autoNetworkCidr,
     harden_etcd: config.hardenEtcd,
     harden_postgresql: config.hardenPostgresql,
     harden_elasticsearch: config.hardenElasticsearch
@@ -292,7 +312,7 @@ const configureFirewall = async () => {
 }
 
 const applySecurityHardening = async () => {
-  if (!config.managementCidr) {
+  if (!autoNetworkCidr) {
     showNotification('请输入管理网络 CIDR', 'error')
     return
   }
@@ -302,34 +322,34 @@ const applySecurityHardening = async () => {
   const iptablesCommands = [] // 收集所有 iptables 命令
 
   addLog('===== 安全加固 iptables 命令 =====', 'info')
-  addLog(`管理网络 CIDR: ${config.managementCidr}`, 'info')
+  addLog(`管理网络 CIDR: ${autoNetworkCidr}`, 'info')
   addLog('', 'info')
 
   // Etcd 端口
   if (config.hardenEtcd) {
     addLog('# ===== Etcd (2379-2380) =====', 'info')
-    generateIptablesCommands(config.managementCidr, [2379, 2380], 'tcp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr, [2379, 2380], 'tcp', iptablesCommands)
     addLog('', 'info')
   }
 
   // PostgreSQL 端口
   if (config.hardenPostgresql) {
     addLog('# ===== PostgreSQL (5432-5433) =====', 'info')
-    generateIptablesCommands(config.managementCidr, [5432, 5433], 'tcp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr, [5432, 5433], 'tcp', iptablesCommands)
     addLog('', 'info')
   }
 
   // Elasticsearch 端口
   if (config.hardenElasticsearch) {
     addLog('# ===== Elasticsearch (9200-9300) =====', 'info')
-    generateIptablesCommands(config.managementCidr, [9200, 9300], 'tcp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr, [9200, 9300], 'tcp', iptablesCommands)
     addLog('', 'info')
   }
 
   // Chronyd 端口
   if (config.hardenChronyd) {
     addLog('# ===== Chronyd (123) - UDP =====', 'info')
-    generateIptablesCommands(config.managementCidr, [123], 'udp', iptablesCommands)
+    generateIptablesCommands(autoNetworkCidr, [123], 'udp', iptablesCommands)
     const conntrackCmd = 'iptables -I INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
     addLog(conntrackCmd, 'success')
     iptablesCommands.push(conntrackCmd)
@@ -341,7 +361,7 @@ const applySecurityHardening = async () => {
     const ports = config.blockPorts.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p))
     if (ports.length > 0) {
       addLog(`# ===== 自定义封禁端口 (${config.blockPorts}) =====`, 'info')
-      generateIptablesCommands(config.managementCidr, ports, 'tcp', iptablesCommands)
+      generateIptablesCommands(autoNetworkCidr, ports, 'tcp', iptablesCommands)
       addLog('', 'info')
     }
   }
@@ -365,7 +385,7 @@ const applySecurityHardening = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hosts: validHosts,
-        management_cidr: config.managementCidr,
+        management_cidr: autoNetworkCidr,
         harden_etcd: config.hardenEtcd,
         harden_postgresql: config.hardenPostgresql,
         harden_elasticsearch: config.hardenElasticsearch,
@@ -494,6 +514,12 @@ const runTask = async (taskName, endpoint, extraData, customHosts = null) => {
 </script>
 
 <style scoped>
+.init-page .readonly {
+  background-color:f5f5 #f5;
+  color: #666;
+  cursor: not-allowed;
+}
+
 .init-page {
   min-height: 100vh;
   padding: 20px;
