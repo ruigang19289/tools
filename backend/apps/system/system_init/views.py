@@ -142,16 +142,30 @@ def validate_hosts(request):
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
 
 
-def generate_hostname_from_ip(ip, index=0):
-    """根据IP地址生成主机名"""
-    # 例如: 192.168.1.100 -> node100, 10.255.0.1 -> node01
+def generate_hostname_from_ip(ip, index=0, prefix='node'):
+    """根据IP地址生成主机名
+    
+    Args:
+        ip: IP地址
+        index: 基于IP排序后的序号（从0开始）
+        prefix: 主机名前缀
+    """
+    # 使用前缀 + 序号（从1开始，保留2位）
+    hostname = f'{prefix}{str(index + 1).zfill(2)}'
+    return hostname
+
+
+def ip_to_int(ip):
+    """将IP转换为整数用于排序"""
     parts = ip.split('.')
     if len(parts) == 4:
-        # 使用最后两个数字生成主机名
-        last_two = parts[-2:]
-        hostname = 'node' + ''.join(p.zfill(2) for p in last_two)
-        return hostname
-    return f'node-{ip.replace(".", "-")}'
+        return int(parts[0]) << 24 | int(parts[1]) << 16 | int(parts[2]) << 8 | int(parts[3])
+    return 0
+
+
+def sort_hosts_by_ip(hosts):
+    """按IP大小排序主机列表"""
+    return sorted(hosts, key=lambda h: ip_to_int(h.get('ip', '')))
 
 
 def process_host_init(ssh, host_info, config, result_container, task_id):
@@ -369,6 +383,7 @@ def full_init(request):
     try:
         data = json.loads(request.body)
         hosts = data.get('hosts', [])
+        hostname_prefix = data.get('hostname_prefix', 'node')
         ntp_servers = data.get('ntp_servers', 'ntp.aliyun.com')
         management_cidr = data.get('management_cidr', '10.255.0.0/24')
         harden_etcd = data.get('harden_etcd', True)
@@ -378,22 +393,27 @@ def full_init(request):
         if not hosts:
             return JsonResponse({'status': 'error', 'error': '请提供主机列表'}, status=400)
 
+        # 按IP排序并生成主机名
+        sorted_hosts = sort_hosts_by_ip(hosts)
+        for index, host in enumerate(sorted_hosts):
+            host['hostname'] = generate_hostname_from_ip(host.get('ip'), index, hostname_prefix)
+
         all_results = []
 
         # 1. 修改主机名和更新 hosts 文件
         host_mappings = []
-        for host_info in hosts:
+        for host_info in sorted_hosts:
             ip = host_info.get('ip')
-            hostname = host_info.get('hostname', ip)
-            if hostname and hostname != ip:
+            hostname = host_info.get('hostname')
+            if hostname:
                 host_mappings.append((ip, hostname))
 
-        for host_info in hosts:
+        for host_info in sorted_hosts:
             ip = host_info.get('ip')
             username = host_info.get('username', 'root')
             password = host_info.get('password')
             port = int(host_info.get('port', 22))
-            hostname = host_info.get('hostname', ip)
+            hostname = host_info.get('hostname')
 
             result = {
                 'ip': ip,
@@ -448,7 +468,7 @@ def full_init(request):
             'harden_elasticsearch': harden_elasticsearch,
         }
 
-        other_results = execute_parallel_init(hosts, config)
+        other_results = execute_parallel_init(sorted_hosts, config)
 
         # 合并结果
         # 合并结果（使用 IP 匹配）
@@ -460,7 +480,7 @@ def full_init(request):
                     result['success'] = False
                 result['message'] = '\n'.join(result['logs']) if result['logs'] else '操作已完成'
         all_pubkeys = []
-        for host_info in hosts:
+        for host_info in sorted_hosts:
             ip = host_info.get('ip')
             username = host_info.get('username', 'root')
             password = host_info.get('password')
@@ -493,7 +513,7 @@ def full_init(request):
 
         # 分发公钥
         if all_pubkeys:
-            for host_info in hosts:
+            for host_info in sorted_hosts:
                 ip = host_info.get('ip')
                 username = host_info.get('username', 'root')
                 password = host_info.get('password')
@@ -533,26 +553,32 @@ def modify_hostnames(request):
     try:
         data = json.loads(request.body)
         hosts = data.get('hosts', [])
+        hostname_prefix = data.get('hostname_prefix', 'node')
 
         if not hosts:
             return JsonResponse({'status': 'error', 'error': '请提供主机列表'}, status=400)
 
+        # 按IP排序并生成主机名
+        sorted_hosts = sort_hosts_by_ip(hosts)
+        for index, host in enumerate(sorted_hosts):
+            host['hostname'] = generate_hostname_from_ip(host.get('ip'), index, hostname_prefix)
+
         # 构建所有主机的 IP 和主机名映射
         host_mappings = []
-        for host_info in hosts:
+        for host_info in sorted_hosts:
             ip = host_info.get('ip')
-            hostname = host_info.get('hostname', ip)
-            if hostname and hostname != ip:
+            hostname = host_info.get('hostname')
+            if hostname:
                 host_mappings.append((ip, hostname))
 
         # 修改每台主机的主机名和 hosts 文件
         results = []
-        for host_info in hosts:
+        for host_info in sorted_hosts:
             ip = host_info.get('ip')
             username = host_info.get('username', 'root')
             password = host_info.get('password')
             port = int(host_info.get('port', 22))
-            hostname = host_info.get('hostname', ip)
+            hostname = host_info.get('hostname')
 
             result = {
                 'ip': ip,

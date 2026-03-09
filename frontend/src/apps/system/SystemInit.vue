@@ -78,13 +78,13 @@
         <div class="section">
           <h2 class="section-title">主机名配置</h2>
           <div class="form-group">
-            <label>主机名列表:</label>
-            <textarea
-              v-model="hostnamesText"
-              rows="3"
-              placeholder="node01&#10;node02&#10;node03"
-            ></textarea>
-            <small>每行一个主机名</small>
+            <label>主机名前缀:</label>
+            <input
+              type="text"
+              v-model="hostnamePrefix"
+              placeholder="node"
+            >
+            <small>基于IP从小到大排序自动生成: node01, node02, ...</small>
           </div>
         </div>
 
@@ -178,7 +178,7 @@ const hostsText = ref('')
 const port = ref(22)
 const username = ref('')
 const password = ref('')
-const hostnamesText = ref('')
+const hostnamePrefix = ref('node')
 
 // Config
 const config = reactive({
@@ -205,7 +205,7 @@ const notification = reactive({
 
 // Computed
 const canStart = computed(() => {
-  return hostsText.value.trim() && username.value.trim() && password.value && hostnamesText.value.trim()
+  return hostsText.value.trim() && username.value.trim() && password.value && hostnamePrefix.value.trim()
 })
 
 const canStartSingle = computed(() => {
@@ -254,20 +254,10 @@ const addLog = (message, type = 'info') => {
 
 // Execute full init
 const executeFullInit = async () => {
-  const hostnames = getValidHostnames()
   const hosts = getValidHosts()
 
-  if (hostnames.length !== hosts.length) {
-    showNotification(`主机数量(${hosts.length})与主机名数量(${hostnames.length})不匹配`, 'error')
-    return
-  }
-
-  // Assign hostnames to hosts
-  hosts.forEach((host, index) => {
-    host.hostname = hostnames[index]
-  })
-
   await runTask('全部初始化', '/full-init', {
+    hostname_prefix: hostnamePrefix.value,
     ntp_servers: config.ntpServers,
     management_cidr: config.managementCidr,
     harden_etcd: config.hardenEtcd,
@@ -278,24 +268,11 @@ const executeFullInit = async () => {
 
 // Single operations
 const modifyHostnames = async () => {
-  if (!hostnamesText.value.trim()) {
-    showNotification('请输入主机名列表', 'error')
-    return
-  }
-
-  const hostnames = getValidHostnames()
   const hosts = getValidHosts()
 
-  if (hostnames.length !== hosts.length) {
-    showNotification(`主机数量(${hosts.length})与主机名数量(${hostnames.length})不匹配`, 'error')
-    return
-  }
-
-  hosts.forEach((host, index) => {
-    host.hostname = hostnames[index]
-  })
-
-  await runTask('修改主机名', '/modify-hostnames', {}, hosts)
+  await runTask('修改主机名', '/modify-hostnames', {
+    hostname_prefix: hostnamePrefix.value
+  }, hosts)
 }
 
 const configureNtpSync = async () => {
