@@ -347,12 +347,14 @@ const validateHosts = async () => {
       const response = await fetch(`${API_BASE}/validate-hosts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify([{
-          ip,
-          username: username.value,
-          password: password.value,
-          port: port.value
-        }])
+        body: JSON.stringify({
+          hosts: [{
+            ip,
+            username: username.value,
+            password: password.value,
+            port: port.value
+          }]
+        })
       })
       const data = await response.json()
       
@@ -361,7 +363,7 @@ const validateHosts = async () => {
         status: data.results?.[0]?.status === 'success' ? 'success' : 'error'
       })
       
-      addOutput(`${ip}: ${data.results?.[0]?.status === 'success' ? '连接成功' : '连接失败'}`, 
+      addOutput(`${ip}: ${data.results?.[0]?.status === 'success' ? '连接成功' : data.results?.[0]?.message || '连接失败'}`, 
         data.results?.[0]?.status === 'success' ? 'success' : 'error')
     } catch (e) {
       validatedHosts.value.push({ ip, status: 'error' })
@@ -393,11 +395,18 @@ const executeCommand = async () => {
   addOutput(`命令: ${command.value}`, 'info')
   
   try {
+    const hostsWithCreds = selectedHosts.value.map(ip => ({
+      ip,
+      username: username.value,
+      password: password.value,
+      port: port.value
+    }))
+    
     const response = await fetch(`${API_BASE}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        hosts: selectedHosts.value,
+        hosts: hostsWithCreds,
         module: commandModule.value,
         command: command.value
       })
@@ -424,11 +433,18 @@ const transferFile = async () => {
   addOutput(`开始文件传输到 ${selectedHosts.value.length} 台主机...`, 'info')
   
   try {
+    const hostsWithCreds = selectedHosts.value.map(ip => ({
+      ip,
+      username: username.value,
+      password: password.value,
+      port: port.value
+    }))
+    
     const response = await fetch(`${API_BASE}/file-transfer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        hosts: selectedHosts.value,
+        hosts: hostsWithCreds,
         action: fileAction.value,
         source: sourcePath.value,
         dest: destPath.value,
@@ -454,11 +470,18 @@ const runPlaybook = async () => {
   addOutput('开始执行 Playbook...', 'info')
   
   try {
+    const hostsWithCreds = selectedHosts.value.map(ip => ({
+      ip,
+      username: username.value,
+      password: password.value,
+      port: port.value
+    }))
+    
     const response = await fetch(`${API_BASE}/playbook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        hosts: selectedHosts.value,
+        hosts: hostsWithCreds,
         playbook: playbookContent.value
       })
     })
