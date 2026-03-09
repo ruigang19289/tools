@@ -505,73 +505,30 @@ const runPlaybook = async () => {
     })
     const data = await response.json()
     
-    addOutput(data.output || 'Playbook 执行完成', 'success')
+    // 显示每个主机的执行结果
+    if (data.results) {
+      for (const r of data.results) {
+        addOutput(`\n=== ${r.ip} ===`, 'info')
+        if (r.error) {
+          addOutput(`错误: ${r.error}`, 'error')
+        } else if (r.tasks) {
+          for (const task of r.tasks) {
+            addOutput(`[${task.name}] ${task.success ? '✓' : '✗'}`, task.success ? 'success' : 'error')
+            if (task.output) {
+              addOutput(task.output, task.success ? 'success' : 'error')
+            }
+          }
+        }
+        addOutput(r.success ? '主机执行成功' : '主机执行失败', r.success ? 'success' : 'error')
+      }
+    } else {
+      addOutput(data.output || 'Playbook 执行完成', 'success')
+    }
   } catch (e) {
     addOutput(`执行失败: ${e.message}`, 'error')
   } finally {
     runningPlaybook.value = false
   }
-}
-
-const validatePlaybook = async () => {
-  addOutput('验证 Playbook 语法...', 'info')
-  // 简化的语法验证
-  try {
-    // 基本 YAML 格式检查
-    const lines = playbookContent.value.split('\n')
-    let hasHosts = false
-    let hasTasks = false
-    
-    for (const line of lines) {
-      if (line.includes('hosts:')) hasHosts = true
-      if (line.includes('tasks:')) hasTasks = true
-    }
-    
-    if (hasHosts && hasTasks) {
-      addOutput('Playbook 语法验证通过', 'success')
-    } else {
-      addOutput('Playbook 格式可能不完整，请检查 hosts 和 tasks', 'error')
-    }
-  } catch (e) {
-    addOutput(`验证失败: ${e.message}`, 'error')
-  }
-}
-
-const useModule = (mod) => {
-  activeTab.value = 'command'
-  commandModule.value = mod.name
-  
-  const templates = {
-    shell: '# 输入要执行的 Shell 命令\n',
-    command: '# 输入要执行的命令\n',
-    yum: '# yum: name=httpd state=present\n',
-    copy: '# copy: src=/path/to/file dest=/path/to/dest\n',
-    file: '# file: path=/path/to/file mode=0755 state=file\n',
-    service: '# service: name=httpd state=started enabled=yes\n',
-    systemd: '# systemd: name=httpd state=started enabled=yes\n',
-    selinux: '# selinux: state=disabled\n',
-    firewalld: '# firewalld: service=httpd permanent=yes state=enabled\n',
-    template: '# template: src=template.j2 dest=/path/to/file\n',
-    sync: '# synchronize: src=/path/to/dest dest=/path/on/remote/\n',
-    cron: '# cron: name="job" minute="0" job="/path/to/job"\n'
-  }
-  
-  command.value = templates[mod.name] || ''
-}
-
-const clearOutput = () => {
-  output.value = []
-}
-
-const downloadOutput = () => {
-  const content = output.value.map(l => `[${l.time}] ${l.message}`).join('\n')
-  const blob = new Blob([content], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `ansible_output_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`
-  a.click()
-  URL.revokeObjectURL(url)
 }
 </script>
 
