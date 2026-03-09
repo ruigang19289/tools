@@ -14,12 +14,13 @@
           <h2 class="section-title">主机配置</h2>
 
           <div class="form-group">
-            <label>远程主机 (每行一个):</label>
+            <label>远程主机:</label>
             <textarea
               v-model="hostsText"
               rows="3"
-              placeholder="192.168.1.1&#10;192.168.1.2&#10;192.168.1.3"
+              placeholder="192.168.1.1&#10;192.168.1.1-10&#10;192.168.1.0/24"
             ></textarea>
+            <small>支持单个IP、IP段(192.168.1.1-10)、CIDR(192.168.1.0/24)</small>
           </div>
 
           <div class="form-row">
