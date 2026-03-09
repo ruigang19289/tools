@@ -592,7 +592,7 @@ const runPlaybook = async () => {
 .ansible-page {
   min-height: 100vh;
   padding: 20px;
-  background: linear-gradient(135deg, #2D5A27 0%, #4A7C43 50%, #6B9B37 100%);
+  background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
 }
 
 .main-content {
