@@ -169,39 +169,6 @@ def sort_hosts_by_ip(hosts):
     return sorted(hosts, key=lambda h: ip_to_int(h.get('ip', '')))
 
 
-def get_network_from_ips(hosts):
-    """根据主机IP列表自动计算网段
-    
-    Args:
-        hosts: 主机列表 [{'ip': '192.168.1.100'}, ...]
-    
-    Returns:
-        str: 网段，如 '192.168.1.0/24'
-    """
-    if not hosts:
-        return '10.255.0.0/24'
-    
-    # 提取所有IP
-    ips = [h.get('ip', '') for h in hosts if h.get('ip')]
-    if not ips:
-        return '10.255.0.0/24'
-    
-    # 解析每个IP的网段部分
-    subnets = {}
-    for ip in ips:
-        parts = ip.split('.')
-        if len(parts) == 4:
-            # 使用 /24 网段
-            subnet = f'{parts[0]}.{parts[1]}.{parts[2]}.0/24'
-            subnets[subnet] = subnets.get(subnet, 0) + 1
-    
-    # 返回主机最多的网段
-    if subnets:
-        return max(subnets.keys(), key=lambda x: subnets[x])
-    
-    return '10.255.0.0/24'
-
-
 def process_host_init(ssh, host_info, config, result_container, task_id):
     """处理单个主机的初始化操作"""
     ip = host_info.get('ip')
@@ -419,8 +386,7 @@ def full_init(request):
         hosts = data.get('hosts', [])
         hostname_prefix = data.get('hostname_prefix', 'node')
         ntp_servers = data.get('ntp_servers', 'ntp.aliyun.com')
-        # 自动根据主机IP计算网段
-        management_cidr = get_network_from_ips(hosts)
+        management_cidr = data.get('management_cidr', '10.255.0.0/24')
         harden_etcd = data.get('harden_etcd', True)
         harden_postgresql = data.get('harden_postgresql', True)
         harden_elasticsearch = data.get('harden_elasticsearch', True)
