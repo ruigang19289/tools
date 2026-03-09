@@ -83,7 +83,8 @@ def execute_command(request):
         module = data.get('module', 'shell')
         command = data.get('command', '')
 
-        if not hosts or not command:
+        # ping 和 setup 模块不需要命令
+        if not hosts or (module not in ['ping', 'setup'] and not command):
             return JsonResponse({'status': 'error', 'error': '请提供主机列表和命令'}, status=400)
 
         results = []
