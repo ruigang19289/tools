@@ -493,3 +493,11 @@ frontend/src/config/
 - `backend/apps/system/ansible/views.py` - 后端API
 - `backend/apps/system/ansible/urls.py` - 路由配置
 
+### 2026-03-09: 代码清理
+
+**清理内容**:
+1. 删除冗余备份文件
+   - SSHTerminal_fio_copy.vue.backup
+   - NetworkReliabilityTest_new.vue.bak
+   - views.py.bak
+
