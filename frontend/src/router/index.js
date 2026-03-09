@@ -45,9 +45,9 @@ const routes = [
   },
   // System Tools
   {
-    path: '/system/ssh',
-    name: 'SSHTerminal',
-    component: () => import('@/apps/system/SSHTerminal_fio_copy.vue')
+    path: '/system/ansible',
+    name: 'Ansible',
+    component: () => import('@/apps/system/Ansible.vue')
   },
   {
     path: '/system/init',

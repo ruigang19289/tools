@@ -101,11 +101,11 @@
           </li>
           <li class="tool-item">
             <router-link
-              to="/system/ssh"
+              to="/system/ansible"
               :class="['tool-link', { disabled: !modulesStatus.ssh }]"
               :event="modulesStatus.ssh ? 'click' : ''"
             >
-              <span class="tool-name">终端连接</span>
+              <span class="tool-name">Ansible 管理平台</span>
               <span class="tool-badge">{{ modulesStatus.ssh ? '可用' : '维护中' }}</span>
             </router-link>
           </li>
