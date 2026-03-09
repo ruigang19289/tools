@@ -230,7 +230,7 @@ def file_transfer(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def run_playbook(request):
-    """执行 Playbook（简化版）"""
+    """执行 Playbook"""
     try:
         data = json.loads(request.body)
         hosts = data.get('hosts', [])
@@ -239,33 +239,182 @@ def run_playbook(request):
         if not hosts or not playbook:
             return JsonResponse({'status': 'error', 'error': '请提供主机列表和 Playbook'}, status=400)
 
-        # 简化处理：将 Playbook 转换为命令执行
-        output_lines = []
-        output_lines.append('Playbook 执行（简化模式）')
-        output_lines.append(f'目标主机: {len(hosts)} 台')
-        output_lines.append('')
+        # 解析 Playbook
+        tasks = parse_playbook(playbook)
         
-        # 解析 Playbook（简化版）
-        tasks_found = []
-        for line in playbook.split('\n'):
-            line = line.strip()
-            if line.startswith('- name:') or line.startswith('  - name:'):
-                task_name = line.replace('- name:', '').replace('  - name:', '').strip()
-                tasks_found.append(task_name)
-        
-        if tasks_found:
-            output_lines.append(f'发现 {len(tasks_found)} 个任务:')
-            for i, task in enumerate(tasks_found, 1):
-                output_lines.append(f'  {i}. {task}')
-        else:
-            output_lines.append('未能解析任务，请确保 Playbook 格式正确')
-        
-        output_lines.append('')
-        output_lines.append('提示: 完整 Playbook 执行需要安装 Ansible')
+        if not tasks:
+            return JsonResponse({'status': 'error', 'error': '无法解析 Playbook，请检查格式'}, status=400)
 
-        return JsonResponse({
-            'status': 'success',
-            'output': '\n'.join(output_lines)
-        })
+        results = []
+        
+        for host_info in hosts:
+            if isinstance(host_info, str):
+                ip = host_info
+                username = 'root'
+                password = ''
+                port = 22
+            else:
+                ip = host_info.get('ip', host_info)
+                username = host_info.get('username', 'root')
+                password = host_info.get('password', '')
+                port = int(host_info.get('port', 22))
+            
+            host_result = {
+                'ip': ip,
+                'success': True,
+                'tasks': []
+            }
+            
+            if not password:
+                host_result['success'] = False
+                host_result['error'] = '需要提供密码'
+                results.append(host_result)
+                continue
+            
+            ssh, error = ssh_connect(ip, port, username, password)
+            if not ssh:
+                host_result['success'] = False
+                host_result['error'] = f'连接失败: {error}'
+                results.append(host_result)
+                continue
+            
+            try:
+                # 执行每个任务
+                for task in tasks:
+                    task_name = task.get('name', 'Unnamed task')
+                    task_module = task.get('module', 'shell')
+                    task_cmd = task.get('command', '')
+                    
+                    # 根据模块构造命令
+                    if task_module == 'shell' or task_module == 'command':
+                        cmd = task_cmd
+                    elif task_module == 'yum':
+                        pkg = task.get('name', '')
+                        state = task.get('state', 'present')
+                        if state == 'present':
+                            cmd = f'yum install -y {pkg}'
+                        else:
+                            cmd = f'yum remove -y {pkg}'
+                    elif task_module == 'copy':
+                        src = task.get('src', '')
+                        dest = task.get('dest', '')
+                        cmd = f'cp {src} {dest}'
+                    elif task_module == 'file':
+                        path = task.get('path', '')
+                        mode = task.get('mode', '')
+                        state = task.get('state', 'file')
+                        if state == 'directory':
+                            cmd = f'mkdir -p {path}'
+                            if mode:
+                                cmd += f' && chmod {mode} {path}'
+                        else:
+                            cmd = f'touch {path}'
+                            if mode:
+                                cmd += f' && chmod {mode} {path}'
+                    elif task_module == 'service':
+                        name = task.get('name', '')
+                        state = task.get('state', 'started')
+                        if state == 'started':
+                            cmd = f'systemctl start {name}'
+                        elif state == 'stopped':
+                            cmd = f'systemctl stop {name}'
+                        elif state == 'restarted':
+                            cmd = f'systemctl restart {name}'
+                        else:
+                            cmd = f'systemctl enable {name}'
+                    elif task_module == 'cron':
+                        name = task.get('name', '')
+                        minute = task.get('minute', '*')
+                        hour = task.get('hour', '*')
+                        job = task.get('job', '')
+                        cmd = f'(crontab -l 2>/dev/null | grep -v "{name}"; echo "{minute} {hour} * * * {job}") | crontab -'
+                    else:
+                        cmd = task_cmd if task_cmd else f'echo "Unknown module: {task_module}"'
+                    
+                    # 执行命令
+                    output, error, exit_code = execute_ssh_command(ssh, cmd)
+                    
+                    host_result['tasks'].append({
+                        'name': task_name,
+                        'module': task_module,
+                        'success': exit_code == 0,
+                        'output': output or error
+                    })
+                    
+                    # 如果任务失败，继续执行但不中断
+                    if exit_code != 0:
+                        host_result['success'] = False
+                        
+            except Exception as e:
+                host_result['success'] = False
+                host_result['error'] = str(e)
+            finally:
+                ssh.close()
+                results.append(host_result)
+
+        return JsonResponse({'status': 'success', 'results': results})
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+
+
+def parse_playbook(playbook_text):
+    """解析 Playbook 文本，提取任务"""
+    tasks = []
+    lines = playbook_text.split('\n')
+    
+    current_task = None
+    current_indent = 0
+    
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        
+        indent = len(line) - len(line.lstrip())
+        
+        # 任务开始
+        if stripped.startswith('- name:'):
+            if current_task:
+                tasks.append(current_task)
+            current_task = {
+                'name': stripped.replace('- name:', '').strip(),
+                'module': 'shell',
+                'command': ''
+            }
+            current_indent = indent
+        # 模块
+        elif stripped.startswith('- ') and current_task:
+            module_name = stripped.replace('- ', '').replace(':', '').strip()
+            current_task['module'] = module_name
+        # 模块属性
+        elif stripped.startswith('name:') and current_task and current_task.get('module') != 'shell':
+            if current_task.get('module') in ['yum', 'copy', 'file', 'service', 'cron']:
+                current_task['name'] = stripped.replace('name:', '').strip()
+        elif stripped.startswith('state:') and current_task:
+            current_task['state'] = stripped.replace('state:', '').strip()
+        elif stripped.startswith('src:') and current_task and current_task.get('module') == 'copy':
+            current_task['src'] = stripped.replace('src:', '').strip()
+        elif stripped.startswith('dest:') and current_task and current_task.get('module') == 'copy':
+            current_task['dest'] = stripped.replace('dest:', '').strip()
+        elif stripped.startswith('path:') and current_task and current_task.get('module') == 'file':
+            current_task['path'] = stripped.replace('path:', '').strip()
+        elif stripped.startswith('mode:') and current_task and current_task.get('module') == 'file':
+            current_task['mode'] = stripped.replace('mode:', '').strip()
+        elif stripped.startswith('job:') and current_task and current_task.get('module') == 'cron':
+            current_task['job'] = stripped.replace('job:', '').strip()
+        elif stripped.startswith('minute:') and current_task and current_task.get('module') == 'cron':
+            current_task['minute'] = stripped.replace('minute:', '').strip()
+        elif stripped.startswith('hour:') and current_task and current_task.get('module') == 'cron':
+            current_task['hour'] = stripped.replace('hour:', '').strip()
+        # Shell/Command 模块的命令
+        elif stripped.startswith('shell:') or stripped.startswith('command:'):
+            cmd = stripped.replace('shell:', '').replace('command:', '').strip()
+            if not current_task:
+                current_task = {'name': 'Shell command', 'module': 'shell', 'command': cmd}
+            else:
+                current_task['command'] = cmd
+    
+    if current_task:
+        tasks.append(current_task)
+    
+    return tasks
