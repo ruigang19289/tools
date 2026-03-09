@@ -421,3 +421,26 @@ frontend/src/config/
 - 前缀: node
 - 输出: node01 (192.168.1.50), node02 (192.168.1.100), node03 (192.168.1.200)
 
+### 2026-03-09: 所有功能模块默认用户名设置为root
+
+**功能实现**:
+1. **所有SSH连接相关模块**
+   - 系统初始化: 默认用户名 root
+   - 系统监控: 默认用户名 root
+   - 网络聚合配置: 默认用户名 root
+   - FIO测试: 默认用户名 root
+   - 带宽测试: 默认用户名 root
+   - SSH终端: 默认用户名 root
+
+**关键文件**:
+- `frontend/src/apps/system/SystemInit.vue`
+- `frontend/src/apps/performance/Monitor.vue`
+- `frontend/src/apps/network/BondConfig.vue`
+- `frontend/src/apps/performance/FIOTest.vue`
+- `frontend/src/apps/network/NetworkReliabilityTest_new.vue`
+- `frontend/src/apps/network/NetworkReliabilityTest.vue`
+- `frontend/src/apps/system/SSHTerminal.vue`
+- `frontend/src/apps/system/SSHTerminal_fio_copy.vue`
+- `frontend/src/apps/system/SSHTerminal_new.vue`
+- `frontend/src/apps/common/useSSHConnection.js`
+
