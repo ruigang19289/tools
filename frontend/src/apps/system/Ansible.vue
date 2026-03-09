@@ -277,6 +277,10 @@ const canValidate = computed(() => {
 })
 
 const canExecute = computed(() => {
+  // ping 和 setup 模块不需要输入命令
+  if (commandModule.value === 'ping' || commandModule.value === 'setup') {
+    return selectedHosts.value.length > 0
+  }
   return selectedHosts.value.length > 0 && command.value.trim()
 })
 
