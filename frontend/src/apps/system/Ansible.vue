@@ -282,6 +282,29 @@ const commonModules = [
   { name: 'cron', desc: '定时任务' },
 ]
 
+// 使用模块
+const useModule = (mod) => {
+  activeTab.value = 'command'
+  commandModule.value = mod.name
+  
+  const templates = {
+    shell: '# 输入要执行的 Shell 命令\n',
+    command: '# 输入要执行的命令\n',
+    yum: 'name: nginx\nstate: present',
+    copy: 'src: /path/to/local/file\ndest: /path/on/remote',
+    file: 'path: /path/to/file\nmode: 0644\nstate: file',
+    service: 'name: nginx\nstate: started',
+    systemd: 'name: nginx\nstate: started',
+    selinux: 'state: disabled',
+    firewalld: 'service: httpd\npermanent: yes\nstate: enabled',
+    template: 'src: template.j2\ndest: /path/to/file',
+    sync: 'src: /path/to/dest\ndest: /path/on/remote/',
+    cron: 'name: "backup job"\nminute: "0"\nhour: "2"\njob: "/path/to/backup.sh"'
+  }
+  
+  command.value = templates[mod.name] || ''
+}
+
 // Computed
 const canValidate = computed(() => {
   return hostsText.value.trim() && username.value.trim() && password.value
