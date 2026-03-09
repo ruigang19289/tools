@@ -24,12 +24,12 @@
 
           <div class="form-row">
             <div class="form-group">
-              <label>端口:</label>
-              <input type="number" v-model="port" placeholder="22">
-            </div>
-            <div class="form-group">
               <label>用户名:</label>
               <input type="text" v-model="username" placeholder="root">
+            </div>
+            <div class="form-group">
+              <label>端口:</label>
+              <input type="number" v-model="port" placeholder="22">
             </div>
           </div>
 
