@@ -253,7 +253,18 @@ const destPath = ref('')
 const fileBackup = ref(true)
 
 // Playbook tab
-const playbookContent = ref('')
+const playbookContent = ref(`# 测试用 Playbook 示例
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: 显示主机名
+      shell: hostname
+    
+    - name: 显示系统信息
+      shell: uname -a
+    
+    - name: 检查内存使用
+      shell: free -h`)
 
 // Common modules
 const commonModules = [
