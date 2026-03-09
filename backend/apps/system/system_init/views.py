@@ -300,40 +300,8 @@ Host *
             execute_ssh_command(ssh, 'systemctl disable firewalld 2>/dev/null || true')
             result['logs'].append('[OK] 已停止并禁用 firewalld')
 
-        # 6. 安全加固 - 根据选项自动生成并执行 iptables 命令
-        harden_etcd = config.get('harden_etcd', False)
-        harden_postgresql = config.get('harden_postgresql', False)
-        harden_elasticsearch = config.get('harden_elasticsearch', False)
-        harden_chronyd = config.get('harden_chronyd', False)
-        management_cidr = config.get('management_cidr', '10.255.0.0/24')
-        
-        iptables_commands = []
-        
-        # etcd (2379, 2380)
-        if harden_etcd:
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p tcp --dport 2379 -j ACCEPT')
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p tcp --dport 2380 -j ACCEPT')
-            result['logs'].append(f'[INFO] 添加 etcd 端口规则: 2379, 2380 ({management_cidr})')
-        
-        # PostgreSQL (5432, 5433)
-        if harden_postgresql:
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p tcp --dport 5432 -j ACCEPT')
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p tcp --dport 5433 -j ACCEPT')
-            result['logs'].append(f'[INFO] 添加 PostgreSQL 端口规则: 5432, 5433 ({management_cidr})')
-        
-        # Elasticsearch (9200, 9300)
-        if harden_elasticsearch:
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p tcp --dport 9200 -j ACCEPT')
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p tcp --dport 9300 -j ACCEPT')
-            result['logs'].append(f'[INFO] 添加 Elasticsearch 端口规则: 9200, 9300 ({management_cidr})')
-        
-        # Chronyd (123)
-        if harden_chronyd:
-            iptables_commands.append(f'iptables -I INPUT -s {management_cidr} -p udp --dport 123 -j ACCEPT')
-            result['logs'].append(f'[INFO] 添加 Chronyd 端口规则: 123 ({management_cidr})')
-        
-        # 执行 iptables 命令
-        if iptables_commands:
+        # 6. 安全加固
+        if config.get('security_hardening'):
             iptables_commands = config.get('iptables_commands', [])
             result['logs'].append(f'[INFO] 收到 {len(iptables_commands)} 条 iptables 命令')
 
@@ -494,6 +462,7 @@ def full_init(request):
             'ntp_servers': ntp_servers,
             'disable_selinux': True,
             'configure_firewall': True,
+            'security_hardening': False,  # 暂时禁用，因为缺少 iptables_commands
             'management_cidr': management_cidr,
             'harden_etcd': harden_etcd,
             'harden_postgresql': harden_postgresql,
