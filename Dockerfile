@@ -10,7 +10,9 @@ RUN apk add --no-cache \
     bash \
     tzdata \
     openssh-client \
-    curl
+    curl \
+    sshpass \
+    nginx
 
 # 设置时区
 ENV TZ=Asia/Shanghai
@@ -34,7 +36,9 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 
 # 安装前端依赖并构建
 WORKDIR /app/frontend
-RUN npm install --registry=https://registry.npmmirror.com && npm run build
+RUN rm -rf node_modules package-lock.json && \
+    npm install --registry=https://registry.npmmirror.com && \
+    npm run build
 
 # 返回工作目录
 WORKDIR /app

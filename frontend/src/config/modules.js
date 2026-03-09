@@ -12,10 +12,8 @@ export const MODULES_STATUS = {
   ping: true,
   bond: true,
   iperf3: true,
-  connection_test: false,
 
   // 系统工具
   ssh: true,
   system_init: true,
-  database: false,
 }

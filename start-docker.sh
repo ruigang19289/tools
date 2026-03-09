@@ -25,13 +25,11 @@ nohup daphne -b 0.0.0.0 -p 6000 backend.asgi:application > logs/django.log 2>&1 
 DJANGO_PID=$!
 echo "- Django PID: $DJANGO_PID"
 
-# 启动 Vue 前端 (端口 6500)
+# 启动 Vue 前端 (端口 6500) - 使用 nginx
 echo -e "${GREEN}启动 Vue 前端 (端口 6500)...${NC}"
-cd frontend
-nohup npm run dev -- --host 0.0.0.0 > ../logs/vue.log 2>&1 &
-VUE_PID=$!
-cd ..
-echo "- Vue PID: $VUE_PID"
+cp /app/nginx.conf /etc/nginx/http.d/default.conf
+nginx
+echo "- Nginx PID: $!"
 
 echo ""
 echo -e "${GREEN}================================${NC}"

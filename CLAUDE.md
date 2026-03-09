@@ -353,3 +353,43 @@ frontend/src/config/
 - 读写比例: read_ratio + write_ratio = 100
 - 写对象前缀: obj-{driver_id+1:04d}- 读对象前缀: obj-{driver_id:04d}-
 
+### 2026-03-09: 彻底删除两个功能模块
+
+**功能实现**:
+1. **彻底删除持续网络测试模块**
+   - 删除前端路由 `/network/connection-test`
+   - 删除前端组件 `frontend/src/apps/network/ConnectionTest.vue`
+   - 删除后端目录 `backend/apps/network/ConnectionTest/`
+   - 删除后端 URL 配置
+
+2. **彻底删除数据库连接工具模块**
+   - 删除前端路由 `/system/database`
+   - 删除前端组件 `frontend/src/apps/system/DatabaseTool.vue`
+   - 删除后端目录 `backend/apps/system/DatabaseTool/`
+   - 删除后端 URL 配置
+
+3. **更新首页和配置**
+   - 删除首页链接
+   - 移除 `frontend/src/config/modules.js` 中的 `connection_test` 和 `database` 配置
+
+**关键文件**:
+- `frontend/src/router/index.js` - 移除两个路由
+- `frontend/src/views/Home.vue` - 移除两个首页链接
+- `frontend/src/config/modules.js` - 移除模块配置
+- `backend/apps/network/urls.py` - 移除 connection-test 路由
+- `backend/apps/system/urls.py` - 移除 database 路由
+
+### 2026-03-09: 调整首页模块布局
+
+**功能实现**:
+1. **系统监控移到系统工具**
+   - 将系统监控从"测试工具"移到"系统工具"
+   - 系统工具顺序: 系统监控, 终端连接, 系统初始化
+
+2. **网络工具顺序调整**
+   - 将"网络聚合配置"和"带宽测试"位置对调
+   - 网络工具顺序: 网段扫描, 网络聚合配置, 带宽测试
+
+**关键文件**:
+- `frontend/src/views/Home.vue` - 调整模块位置
+

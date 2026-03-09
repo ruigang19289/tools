@@ -21,16 +21,6 @@
           </li>
           <li class="tool-item">
             <router-link
-              to="/perf/monitor"
-              :class="['tool-link', { disabled: !modulesStatus.monitor }]"
-              :event="modulesStatus.monitor ? 'click' : ''"
-            >
-              <span class="tool-name">系统监控</span>
-              <span class="tool-badge">{{ modulesStatus.monitor ? '可用' : '维护中' }}</span>
-            </router-link>
-          </li>
-          <li class="tool-item">
-            <router-link
               to="/perf/fio"
               :class="['tool-link', { disabled: !modulesStatus.fio }]"
               :event="modulesStatus.fio ? 'click' : ''"
@@ -71,32 +61,22 @@
           </li>
           <li class="tool-item">
             <router-link
-              to="/network/iperf3"
-              :class="['tool-link', { disabled: !modulesStatus.iperf3 }]"
-              :event="modulesStatus.iperf3 ? 'click' : ''"
-            >
-              <span class="tool-name">带宽测试</span>
-              <span class="tool-badge">{{ modulesStatus.iperf3 ? '可用' : '维护中' }}</span>
-            </router-link>
-          </li>
-          <li class="tool-item">
-            <router-link
-              to="/network/connection-test"
-              :class="['tool-link', { disabled: !modulesStatus.connection_test }]"
-              :event="modulesStatus.connection_test ? 'click' : ''"
-            >
-              <span class="tool-name">持续网络测试</span>
-              <span class="tool-badge">{{ modulesStatus.connection_test ? '可用' : '维护中' }}</span>
-            </router-link>
-          </li>
-          <li class="tool-item">
-            <router-link
               to="/network/bond"
               :class="['tool-link', { disabled: !modulesStatus.bond }]"
               :event="modulesStatus.bond ? 'click' : ''"
             >
               <span class="tool-name">网络聚合配置</span>
               <span class="tool-badge">{{ modulesStatus.bond ? '可用' : '维护中' }}</span>
+            </router-link>
+          </li>
+          <li class="tool-item">
+            <router-link
+              to="/network/iperf3"
+              :class="['tool-link', { disabled: !modulesStatus.iperf3 }]"
+              :event="modulesStatus.iperf3 ? 'click' : ''"
+            >
+              <span class="tool-name">带宽测试</span>
+              <span class="tool-badge">{{ modulesStatus.iperf3 ? '可用' : '维护中' }}</span>
             </router-link>
           </li>
         </ul>
@@ -109,6 +89,16 @@
           <div class="category-title">系统工具</div>
         </div>
         <ul class="tool-list">
+          <li class="tool-item">
+            <router-link
+              to="/perf/monitor"
+              :class="['tool-link', { disabled: !modulesStatus.monitor }]"
+              :event="modulesStatus.monitor ? 'click' : ''"
+            >
+              <span class="tool-name">系统监控</span>
+              <span class="tool-badge">{{ modulesStatus.monitor ? '可用' : '维护中' }}</span>
+            </router-link>
+          </li>
           <li class="tool-item">
             <router-link
               to="/system/ssh"
@@ -127,16 +117,6 @@
             >
               <span class="tool-name">系统初始化</span>
               <span class="tool-badge">{{ modulesStatus.system_init ? '可用' : '维护中' }}</span>
-            </router-link>
-          </li>
-          <li class="tool-item">
-            <router-link
-              to="/system/database"
-              :class="['tool-link', { disabled: !modulesStatus.database }]"
-              :event="modulesStatus.database ? 'click' : ''"
-            >
-              <span class="tool-name">数据库连接工具</span>
-              <span class="tool-badge">{{ modulesStatus.database ? '可用' : '维护中' }}</span>
             </router-link>
           </li>
         </ul>

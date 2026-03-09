@@ -43,11 +43,6 @@ const routes = [
     name: 'NetworkReliabilityTest',
     component: () => import('@/apps/network/NetworkReliabilityTest_new.vue')
   },
-  {
-    path: '/network/connection-test',
-    name: 'ConnectionTest',
-    component: () => import('@/apps/network/ConnectionTest.vue')
-  },
   // System Tools
   {
     path: '/system/ssh',
@@ -59,11 +54,6 @@ const routes = [
     name: 'SystemInit',
     component: () => import('@/apps/system/SystemInit.vue')
   },
-  {
-    path: '/system/database',
-    name: 'DatabaseTool',
-    component: () => import('@/apps/system/DatabaseTool.vue')
-  }
 ]
 
 const router = createRouter({
