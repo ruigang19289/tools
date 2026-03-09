@@ -444,3 +444,18 @@ frontend/src/config/
 - `frontend/src/apps/system/SSHTerminal_new.vue`
 - `frontend/src/apps/common/useSSHConnection.js`
 
+### 2026-03-09: 系统初始化支持IP地址段输入
+
+**功能实现**:
+1. **支持多种IP输入格式**
+   - 单个IP: 192.168.1.1
+   - IP范围: 192.168.1.1-10 或 192.168.1.1-192.168.1.10
+   - CIDR格式: 192.168.1.0/24
+
+2. **前端解析逻辑**
+   - 前端增加 parseIPRange 函数解析各种格式
+   - getValidHosts 函数调用 parseIPRange 获取所有IP
+
+**关键文件**:
+- `frontend/src/apps/system/SystemInit.vue` - 添加IP解析函数
+
