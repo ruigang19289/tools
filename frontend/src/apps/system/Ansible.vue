@@ -650,7 +650,7 @@ const runPlaybook = async () => {
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #4A7C43;
+  border-color: #6B5DD3;
 }
 
 .form-row {
@@ -709,8 +709,8 @@ const runPlaybook = async () => {
 }
 
 .tab-btn.active {
-  color: #4A7C43;
-  border-bottom-color: #4A7C43;
+  color: #6B5DD3;
+  border-bottom-color: #6B5DD3;
 }
 
 .code-editor {
@@ -735,8 +735,8 @@ const runPlaybook = async () => {
 }
 
 .module-btn:hover {
-  background: #e8f5e9;
-  border-color: #4A7C43;
+  background: #f3e5f5;
+  border-color: #6B5DD3;
 }
 
 .module-name {
