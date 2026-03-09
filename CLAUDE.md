@@ -501,3 +501,11 @@ frontend/src/config/
    - NetworkReliabilityTest_new.vue.bak
    - views.py.bak
 
+### 2026-03-09: Dockerfile 修复
+
+**问题**:
+- npm 镜像源版本不匹配导致 @vue/shared 构建失败
+
+**修复**:
+- 移除 npm install 的 --registry 参数，使用默认源
+
