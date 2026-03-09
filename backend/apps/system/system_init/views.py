@@ -151,8 +151,8 @@ def generate_hostname_from_ip(ip, index=0, prefix='node'):
         index: 基于IP排序后的序号（从0开始）
         prefix: 主机名前缀
     """
-    # 使用前缀 + 序号（从1开始，保留2位）
-    hostname = f'{prefix}{str(index + 1).zfill(2)}'
+    # 使用前缀 + 序号（从1开始）
+    hostname = f'{prefix}{index + 1}'
     return hostname
 
 
