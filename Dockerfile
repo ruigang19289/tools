@@ -37,7 +37,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # 安装前端依赖并构建
 WORKDIR /app/frontend
 RUN rm -rf node_modules package-lock.json && \
-    npm install && \
+    npm install --registry=https://registry.npmmirror.com && \
     npm run build
 
 # 返回工作目录

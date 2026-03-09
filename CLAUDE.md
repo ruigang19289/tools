@@ -504,8 +504,8 @@ frontend/src/config/
 ### 2026-03-09: Dockerfile 修复
 
 **问题**:
-- npm 镜像源版本不匹配导致 @vue/shared 构建失败
+- npm 网络连接问题导致构建失败
 
 **修复**:
-- 移除 npm install 的 --registry 参数，使用默认源
+- 使用阿里云 npm 镜像 (registry.npmmirror.com) 避免网络问题
 
