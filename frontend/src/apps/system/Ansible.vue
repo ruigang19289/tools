@@ -326,6 +326,39 @@ const canRunPlaybook = computed(() => {
   return selectedHosts.value.length > 0 && playbookContent.value.trim()
 })
 
+// 验证 Playbook 语法
+const validatePlaybook = () => {
+  const content = playbookContent.value.trim()
+  if (!content) {
+    addOutput('请输入 Playbook 内容', 'error')
+    return
+  }
+  
+  const lines = content.split('\n')
+  let hasHosts = false
+  let hasTasks = false
+  let taskCount = 0
+  
+  for (const line of lines) {
+    const stripped = line.trim()
+    if (stripped.includes('hosts:')) hasHosts = true
+    if (stripped.includes('tasks:')) hasTasks = true
+    if (stripped.startsWith('- name:')) taskCount++
+  }
+  
+  const issues = []
+  if (!hasHosts) issues.push('缺少 hosts 配置')
+  if (!hasTasks) issues.push('缺少 tasks 定义')
+  if (taskCount === 0) issues.push('没有定义任何任务')
+  
+  if (issues.length === 0) {
+    addOutput(`✓ Playbook 语法验证通过 (${taskCount} 个任务)`, 'success')
+  } else {
+    addOutput('✗ Playbook 语法问题:', 'error')
+    issues.forEach(issue => addOutput(`  - ${issue}`, 'error'))
+  }
+}
+
 // Methods
 const parseIPRange = (input) => {
   const ips = []
