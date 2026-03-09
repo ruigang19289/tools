@@ -11,6 +11,8 @@
         <input type="text" id="server-address" v-model="serverAddress" placeholder="192.168.1.1" @keyup.enter="connect">
         <label for="username">用户名:</label>
         <input type="text" id="username" v-model="username" placeholder="root" @keyup.enter="connect">
+        <label for="port">端口:</label>
+        <input type="number" id="port" v-model="port" placeholder="22" style="width: 60px;" @keyup.enter="connect">
         <label for="password">密码:</label>
         <input type="password" id="password" v-model="password" placeholder="******" @keyup.enter="connect">
         <button id="connect-btn" class="btn-compact" @click="connect" :disabled="isConnecting || !canConnect">
@@ -130,6 +132,7 @@ import ReconnectDialog from '@/components/ReconnectDialog.vue'
 // 状态
 const serverAddress = ref('')
 const username = ref('root')
+const port = ref(22)
 const password = ref('')
 const isConnecting = ref(false)
 const activeHost = ref(null)
@@ -234,12 +237,13 @@ const showNotification = (message, type = 'info') => {
 }
 
 // 连接到单个服务器
-const connectToServer = async (host, user, pwd) => {
+const connectToServer = async (host, user, pwd, port = 22) => {
   try {
     const response = await api.post('/perf/monitor/connect', {
       host: host,
       username: user,
-      password: pwd
+      password: pwd,
+      port: port
     })
 
     if (response.status === 'success') {
@@ -248,6 +252,7 @@ const connectToServer = async (host, user, pwd) => {
         host: host,
         username: user,
         password: pwd,
+        port: port,
         system_info: response.system_info,
         data: null
       }
@@ -286,6 +291,7 @@ const connect = async () => {
   const addressInput = serverAddress.value.trim()
   const user = username.value.trim()
   const pwd = password.value
+  const portNum = port.value || 22
 
   if (!addressInput || !user || !pwd) {
     showNotification('请填写完整的连接信息', 'error')
@@ -299,7 +305,7 @@ const connect = async () => {
     let successCount = 0
 
     for (const host of addresses) {
-      const success = await connectToServer(host, user, pwd)
+      const success = await connectToServer(host, user, pwd, portNum)
       if (success) successCount++
       await new Promise(resolve => setTimeout(resolve, 100))
     }
