@@ -15,7 +15,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 
 // Props - 外部传入
 const props = defineProps({
@@ -30,8 +30,19 @@ const props = defineProps({
   onReconnect: {
     type: Function,
     required: true
+  },
+  autoReconnect: {
+    type: Boolean,
+    default: false
   }
 })
+
+const normalizeKey = (suffix) => `${props.storageKey}_${suffix}`
+
+const clearStoredReconnectState = () => {
+  localStorage.removeItem(normalizeKey('connection_history'))
+  localStorage.removeItem(normalizeKey('server_start_time'))
+}
 
 // Emits
 const emit = defineEmits(['close'])
@@ -46,7 +57,7 @@ const saveServerTime = async () => {
   try {
     const res = await fetch(`${props.apiEndpoint}/server-info`)
     const info = await res.json()
-    localStorage.setItem(`${props.storageKey}_server_start_time`, info.server_start_time)
+    localStorage.setItem(normalizeKey('server_start_time'), info.server_start_time)
   } catch (e) {
     console.error('Failed to save server time:', e)
   }
@@ -54,7 +65,7 @@ const saveServerTime = async () => {
 
 // 提示重新连接
 const promptReconnect = async () => {
-  const saved = localStorage.getItem(`${props.storageKey}_connection_history`)
+  const saved = localStorage.getItem(normalizeKey('connection_history'))
   if (!saved) return
 
   try {
@@ -64,24 +75,29 @@ const promptReconnect = async () => {
     const currentServerTime = serverInfo.server_start_time
 
     // Get saved server time
-    const savedServerTime = localStorage.getItem(`${props.storageKey}_server_start_time`)
+    const savedServerTime = localStorage.getItem(normalizeKey('server_start_time'))
 
     // If server has restarted (time mismatch), clear history and return
     if (savedServerTime && parseFloat(savedServerTime) !== currentServerTime) {
       console.log('Server restarted, clearing connection history')
-      localStorage.removeItem(`${props.storageKey}_connection_history`)
-      localStorage.removeItem(`${props.storageKey}_server_start_time`)
+      clearStoredReconnectState()
       return
     }
 
     const history = JSON.parse(saved)
     if (history.length === 0) return
 
-    // Show reconnect dialog
     reconnectHistory.value = history
     reconnectHosts.value = history.map(h =>
       `<span style="color: #333;">${h.username}@${h.host}</span>`
     ).join('<br>')
+
+    if (props.autoReconnect) {
+      await handleReconnectYes()
+      return
+    }
+
+    // Show reconnect dialog
     showReconnectDialog.value = true
   } catch (error) {
     console.error('promptReconnect error:', error)
@@ -104,8 +120,7 @@ const handleReconnectYes = async () => {
 // 处理重新连接 - 否
 const handleReconnectNo = () => {
   showReconnectDialog.value = false
-  localStorage.removeItem(`${props.storageKey}_connection_history`)
-  localStorage.removeItem(`${props.storageKey}_server_start_time`)
+  clearStoredReconnectState()
 }
 
 // 保存连接历史
@@ -113,14 +128,13 @@ const saveConnectionHistory = async () => {
   const history = props.history
   if (!history || history.length === 0) return
 
-  localStorage.setItem(`${props.storageKey}_connection_history`, JSON.stringify(history))
+  localStorage.setItem(normalizeKey('connection_history'), JSON.stringify(history))
   await saveServerTime()
 }
 
 // 清除连接历史
 const clearConnectionHistory = () => {
-  localStorage.removeItem(`${props.storageKey}_connection_history`)
-  localStorage.removeItem(`${props.storageKey}_server_start_time`)
+  clearStoredReconnectState()
 }
 
 // 初始化

@@ -32,7 +32,11 @@ fi
 
 # 安装依赖
 echo -e "${YELLOW}检查并安装 Python 依赖...${NC}"
-pip install -q django djangorestframework django-cors-headers channels daphne 2>/dev/null || true
+if [ -f "backend/requirements.txt" ]; then
+    pip install -q -r backend/requirements.txt 2>/dev/null || true
+else
+    pip install -q django djangorestframework django-cors-headers channels daphne paramiko Pillow python-dotenv 2>/dev/null || true
+fi
 
 # 安装前端依赖
 if [ ! -d "frontend/node_modules" ]; then
@@ -49,11 +53,20 @@ sleep 1
 
 # 启动 Django 后端 (端口 6000) - 使用 daphne
 echo -e "${GREEN}启动 Django 后端 (端口 6000)...${NC}"
-if [ -f "./venv/Scripts/daphne" ] || [ -f "./venv/Scripts/daphne.exe" ]; then
-    nohup ./venv/Scripts/daphne -b 0.0.0.0 -p 6000 backend.asgi:application > logs/django.log 2>&1 &
+DAPHNE_CMD=""
+if [ -x "./venv/Scripts/daphne" ]; then
+    DAPHNE_CMD="./venv/Scripts/daphne"
+elif [ -x "./venv/Scripts/daphne.exe" ]; then
+    DAPHNE_CMD="./venv/Scripts/daphne.exe"
+elif [ -x "./venv/bin/daphne" ] && ./venv/bin/daphne --version >/dev/null 2>&1; then
+    DAPHNE_CMD="./venv/bin/daphne"
+elif command -v daphne >/dev/null 2>&1; then
+    DAPHNE_CMD="daphne"
 else
-    nohup ./venv/bin/daphne -b 0.0.0.0 -p 6000 backend.asgi:application > logs/django.log 2>&1 &
+    echo -e "${RED}错误: 找不到可用的 daphne 命令${NC}"
+    exit 1
 fi
+nohup $DAPHNE_CMD -b 0.0.0.0 -p 6000 backend.asgi:application > logs/django.log 2>&1 &
 DJANGO_PID=$!
 echo "- Django PID: $DJANGO_PID"
 

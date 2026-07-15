@@ -99,6 +99,17 @@
                 <option value="command">Command 命令</option>
                 <option value="ping">Ping 测试</option>
                 <option value="setup">收集主机信息</option>
+                <option value="yum">Yum 包管理</option>
+                <option value="apt">Apt 包管理</option>
+                <option value="copy">Copy 文件复制</option>
+                <option value="file">File 文件管理</option>
+                <option value="service">Service 服务管理</option>
+                <option value="systemd">Systemd 系统服务</option>
+                <option value="selinux">SELinux 管理</option>
+                <option value="firewalld">Firewalld 防火墙</option>
+                <option value="template">Template 模板文件</option>
+                <option value="sync">Sync 目录同步</option>
+                <option value="cron">Cron 定时任务</option>
               </select>
             </div>
             <div class="form-group">
@@ -221,8 +232,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, watch } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { usePageStatePersistence } from '@/apps/common/usePageStatePersistence'
 
 const API_BASE = '/api/v1/system/ansible'
 
@@ -245,6 +257,35 @@ const terminalWindow = ref(null)
 // Command tab
 const commandModule = ref('shell')
 const command = ref('')
+
+// 命令模板
+const templates = {
+  shell: '# 输入要执行的 Shell 命令\n',
+  command: '# 输入要执行的命令\n',
+  yum: 'name=nginx state=present',
+  apt: 'name=nginx state=present',
+  copy: 'src=/path/to/local/file dest=/path/on/remote',
+  file: 'path=/path/to/file mode=0644 state=file',
+  service: 'name=nginx state=started',
+  systemd: 'name=nginx state=started',
+  selinux: 'state=disabled',
+  firewalld: 'service=httpd state=enabled',
+  template: 'src=template.j2 dest=/path/to/file',
+  sync: 'src=/path/to/dest dest=/path/on/remote/',
+  cron: 'name=backup minute="0" hour="2" job=/path/to/backup.sh'
+}
+
+// 监听模块变化，自动填充命令模板
+watch(commandModule, (newModule) => {
+  // 如果选择 yum 模块，检查系统是否支持
+  if (newModule === 'yum') {
+    // 在实际应用中，我们可以通过检测系统信息来判断是否支持 yum
+    // 这里我们简单地显示一个警告信息
+    addOutput('警告：yum 模块仅适用于 RedHat/CentOS 系统，Ubuntu 系统请使用 apt 模块', 'warning')
+  }
+  
+  command.value = templates[newModule] || ''
+})
 
 // File transfer tab
 const fileAction = ref('push')
@@ -407,6 +448,26 @@ const addOutput = (message, type = 'info') => {
   })
 }
 
+const parseJsonResponse = async (response) => {
+  const text = await response.text()
+  if (!text.trim()) {
+    throw new Error(`接口返回空响应，HTTP ${response.status}`)
+  }
+
+  let data
+  try {
+    data = JSON.parse(text)
+  } catch (e) {
+    throw new Error(`接口返回非 JSON，HTTP ${response.status}: ${text.slice(0, 200)}`)
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || data.message || `请求失败，HTTP ${response.status}`)
+  }
+
+  return data
+}
+
 const validateHosts = async () => {
   const ips = parseIPRange(hostsText.value)
   addOutput(`开始验证 ${ips.length} 个主机...`, 'info')
@@ -427,7 +488,7 @@ const validateHosts = async () => {
           }]
         })
       })
-      const data = await response.json()
+      const data = await parseJsonResponse(response)
       
       validatedHosts.value.push({
         ip,
@@ -485,7 +546,7 @@ const executeCommand = async () => {
         command: command.value
       })
     })
-    const data = await response.json()
+    const data = await parseJsonResponse(response)
     
     if (data.results) {
       for (const r of data.results) {
@@ -525,7 +586,7 @@ const transferFile = async () => {
         backup: fileBackup.value
       })
     })
-    const data = await response.json()
+    const data = await parseJsonResponse(response)
     
     if (data.results) {
       for (const r of data.results) {
@@ -542,7 +603,7 @@ const transferFile = async () => {
 const runPlaybook = async () => {
   runningPlaybook.value = true
   addOutput('开始执行 Playbook...', 'info')
-  
+
   try {
     const hostsWithCreds = selectedHosts.value.map(ip => ({
       ip,
@@ -550,7 +611,7 @@ const runPlaybook = async () => {
       password: password.value,
       port: port.value
     }))
-    
+
     const response = await fetch(`${API_BASE}/playbook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -559,21 +620,16 @@ const runPlaybook = async () => {
         playbook: playbookContent.value
       })
     })
-    const data = await response.json()
-    
+    const data = await parseJsonResponse(response)
+
     // 显示每个主机的执行结果
     if (data.results) {
       for (const r of data.results) {
         addOutput(`\n=== ${r.ip} ===`, 'info')
         if (r.error) {
           addOutput(`错误: ${r.error}`, 'error')
-        } else if (r.tasks) {
-          for (const task of r.tasks) {
-            addOutput(`[${task.name}] ${task.success ? '✓' : '✗'}`, task.success ? 'success' : 'error')
-            if (task.output) {
-              addOutput(task.output, task.success ? 'success' : 'error')
-            }
-          }
+        } else if (r.output) {
+          addOutput(r.output, r.success ? 'success' : 'error')
         }
         addOutput(r.success ? '主机执行成功' : '主机执行失败', r.success ? 'success' : 'error')
       }
@@ -586,6 +642,66 @@ const runPlaybook = async () => {
     runningPlaybook.value = false
   }
 }
+
+const clearOutput = () => {
+  output.value = []
+}
+
+const downloadOutput = () => {
+  if (output.value.length === 0) {
+    addOutput('没有可下载的输出', 'error')
+    return
+  }
+
+  const content = output.value
+    .map(line => `${line.time} ${line.message}`)
+    .join('\n')
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `ansible_output_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+usePageStatePersistence('ansible_page_state', () => ({
+  hostsText: hostsText.value,
+  username: username.value,
+  port: port.value,
+  password: password.value,
+  validatedHosts: validatedHosts.value,
+  selectedHosts: selectedHosts.value,
+  activeTab: activeTab.value,
+  commandModule: commandModule.value,
+  command: command.value,
+  fileAction: fileAction.value,
+  sourcePath: sourcePath.value,
+  destPath: destPath.value,
+  fileBackup: fileBackup.value,
+  playbookContent: playbookContent.value,
+  output: output.value
+}), {
+  hydrate: (saved) => {
+    hostsText.value = saved.hostsText || ''
+    username.value = saved.username || 'root'
+    port.value = saved.port ?? 22
+    password.value = saved.password || ''
+    validatedHosts.value = Array.isArray(saved.validatedHosts) ? saved.validatedHosts : []
+    selectedHosts.value = Array.isArray(saved.selectedHosts) ? saved.selectedHosts : []
+    activeTab.value = saved.activeTab || 'command'
+    commandModule.value = saved.commandModule || 'shell'
+    command.value = saved.command || ''
+    fileAction.value = saved.fileAction || 'push'
+    sourcePath.value = saved.sourcePath || ''
+    destPath.value = saved.destPath || ''
+    fileBackup.value = saved.fileBackup ?? true
+    playbookContent.value = saved.playbookContent || playbookContent.value
+    output.value = Array.isArray(saved.output) ? saved.output : []
+  }
+})
 </script>
 
 <style scoped>

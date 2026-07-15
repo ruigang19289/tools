@@ -60,13 +60,12 @@
           </div>
 
           <div class="form-grid">
-            <div class="form-group narrow">
+            <div class="form-group endpoint-wide">
               <label>Endpoint (每行一个):</label>
               <textarea v-model="s3.endpointsText" rows="3" placeholder="http://192.168.1.1:8060
 http://192.168.1.2:8060
 http://192.168.1.3:8060"></textarea>
             </div>
-            <div></div>
             <div></div>
             <div class="form-group">
               <label>Access Key:</label>
@@ -306,9 +305,18 @@ const generateConfig = async () => {
 // Download
 const downloadCurrent = () => {
   const content = currentOutput.value
-  const filename = outputTab.value === 'controller'
-    ? 'controller.conf'
-    : `${workload.name || 'workload'}_${workload.operationType}.xml`
+  let filename
+  
+  if (outputTab.value === 'controller') {
+    filename = 'controller.conf'
+  } else {
+    // 生成符合格式的文件名：S3-4k-write-1driver
+    const sizeStr = `${workload.objectSizeMb}${workload.sizeUnit.toLowerCase().replace('mb', 'm').replace('kb', 'k')}`
+    const typeStr = workload.operationType
+    const driverStr = `${workload.numDrivers}driver`
+    
+    filename = `S3-${sizeStr}-${typeStr}-${driverStr}.xml`
+  }
 
   const blob = new Blob([content], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
@@ -321,9 +329,31 @@ const downloadCurrent = () => {
 }
 
 // Copy
-const copyCurrent = () => {
-  navigator.clipboard.writeText(currentOutput.value)
-  showNotification('已复制到剪贴板', 'success')
+const copyCurrent = async () => {
+  const content = currentOutput.value
+  if (!content) {
+    showNotification('没有可复制的内容', 'warning')
+    return
+  }
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(content)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = content
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    showNotification('已复制到剪贴板', 'success')
+  } catch (error) {
+    showNotification('复制失败，请手动选择内容复制', 'error')
+  }
 }
 </script>
 
@@ -417,6 +447,10 @@ const copyCurrent = () => {
 
 .form-group.full {
   grid-column: span 3;
+}
+
+.form-group.endpoint-wide {
+  grid-column: span 2;
 }
 
 .form-group label {

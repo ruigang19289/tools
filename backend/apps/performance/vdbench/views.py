@@ -17,7 +17,6 @@ def list_tests(request):
         test_dirs = []
         for item in sorted(VDBENCH_RESULT_DIR.iterdir()):
             if item.is_dir():
-                # 只检查 summary.html（不接受 totals.html）
                 summary_path = item / 'summary.html'
                 has_data = summary_path.exists()
 
@@ -51,7 +50,6 @@ def load_test(request):
     if not test_name:
         return JsonResponse({'error': '测试名称不能为空'}, status=400)
 
-    # 尝试多种路径格式
     possible_paths = [
         VDBENCH_RESULT_DIR / test_name,
         VDBENCH_RESULT_DIR / test_name.replace('_', '-'),
@@ -67,7 +65,6 @@ def load_test(request):
     if not test_dir:
         return JsonResponse({'error': f'测试目录不存在: {test_name}'}, status=404)
 
-    # 只检查 summary.html（不接受 totals.html）
     summary_path = test_dir / 'summary.html'
     if not summary_path.exists():
         return JsonResponse({'error': '没有找到summary.html'}, status=404)
@@ -85,7 +82,6 @@ def get_summary(request):
     if not test_name:
         return JsonResponse({'error': '测试名称不能为空'}, status=400)
 
-    # 查找测试目录
     possible_paths = [
         VDBENCH_RESULT_DIR / test_name,
         VDBENCH_RESULT_DIR / test_name.replace('_', '-'),
@@ -101,7 +97,6 @@ def get_summary(request):
     if not test_dir:
         return JsonResponse({'error': '测试不存在'}, status=404)
 
-    # 优先使用 summary.html，如果不存在则使用 totals.html
     summary_path = test_dir / 'summary.html'
     if not summary_path.exists():
         summary_path = test_dir / 'totals.html'
@@ -110,7 +105,6 @@ def get_summary(request):
         return JsonResponse({'error': 'summary.html 或 totals.html 不存在'}, status=404)
 
     try:
-        # 解析 summary.html 或 totals.html
         parser = VDBenchParser(str(summary_path))
         data = parser.parse()
         summary = parser.get_summary_stats()
@@ -132,7 +126,6 @@ def get_data(request):
     if not test_name:
         return JsonResponse({'error': '测试名称不能为空'}, status=400)
 
-    # 查找测试目录
     possible_paths = [
         VDBENCH_RESULT_DIR / test_name,
         VDBENCH_RESULT_DIR / test_name.replace('_', '-'),
@@ -148,7 +141,6 @@ def get_data(request):
     if not test_dir:
         return JsonResponse({'error': '测试不存在'}, status=404)
 
-    # 优先使用 summary.html，如果不存在则使用 totals.html
     summary_path = test_dir / 'summary.html'
     if not summary_path.exists():
         summary_path = test_dir / 'totals.html'
@@ -157,7 +149,6 @@ def get_data(request):
         return JsonResponse({'error': 'summary.html 或 totals.html 不存在'}, status=404)
 
     try:
-        # 解析 summary.html 或 totals.html
         parser = VDBenchParser(str(summary_path))
         data = parser.parse()
 
@@ -170,11 +161,9 @@ def get_data(request):
 
 @csrf_exempt
 def summary(request):
-    """兼容旧版 API: 获取汇总数据"""
     return get_summary(request)
 
 
 @csrf_exempt
 def data(request):
-    """兼容旧版 API: 获取详细数据"""
     return get_data(request)

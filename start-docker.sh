@@ -1,44 +1,28 @@
-#!/bin/bash
+#!/bin/sh
 # Tools 项目启动脚本 (Docker版)
-# =====================
 
-set -e
+set -eu
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+mkdir -p /app/logs /app/data /app/data/cache /app/data/vdbench-result /run/nginx
 
-# 目录设置
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+if [ ! -f /app/data/db.sqlite3 ]; then
+  : > /app/data/db.sqlite3
+fi
 
-# 释放端口
-fuser -k 6000/tcp 2>/dev/null || true
-fuser -k 6500/tcp 2>/dev/null || true
-sleep 1
+python3 manage.py migrate --noinput >/app/logs/migrate.log 2>&1
 
-# 启动 Django 后端 (端口 6000) - 使用 daphne
-echo -e "${GREEN}启动 Django 后端 (端口 6000)...${NC}"
-nohup daphne -b 0.0.0.0 -p 6000 backend.asgi:application > logs/django.log 2>&1 &
+daphne -b 0.0.0.0 -p 6000 backend.asgi:application >/app/logs/django.log 2>&1 &
 DJANGO_PID=$!
-echo "- Django PID: $DJANGO_PID"
 
-# 启动 Vue 前端 (端口 6500) - 使用 nginx
-echo -e "${GREEN}启动 Vue 前端 (端口 6500)...${NC}"
 cp /app/nginx.conf /etc/nginx/http.d/default.conf
-nginx
-echo "- Nginx PID: $!"
+nginx -t >/app/logs/nginx-test.log 2>&1
 
-echo ""
-echo -e "${GREEN}================================${NC}"
-echo -e "${GREEN}Tools 项目启动成功！${NC}"
-echo -e "${GREEN}================================${NC}"
-echo -e "Django 后端: http://localhost:6000"
-echo -e "Vue 前端:   http://localhost:6500"
-echo ""
-echo -e "日志位置: logs/django.log, logs/vue.log"
+cleanup() {
+  if kill -0 "$DJANGO_PID" 2>/dev/null; then
+    kill "$DJANGO_PID" 2>/dev/null || true
+    wait "$DJANGO_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
 
-# 保持容器运行
-tail -f /dev/null
+exec nginx -g 'daemon off;'

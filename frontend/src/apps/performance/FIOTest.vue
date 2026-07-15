@@ -5,11 +5,8 @@
       title="FIO 性能测试"
     />
 
-    <!-- Main Content -->
     <div class="main-content">
-      <!-- Left Panel: Configuration -->
       <div class="left-panel">
-        <!-- Host Configuration -->
         <div class="section">
           <h2 class="section-title">主机配置</h2>
 
@@ -45,11 +42,11 @@
           </button>
 
           <div v-if="validationResults.length > 0" class="validation-summary">
-            <span class="badge success" v-if="validationResults.every(r => r.status === 'success')">
+            <span class="badge success" v-if="validationResults.every(r => r.status === 'success' && r.has_fio)">
               ✅ 全部连接成功
             </span>
-            <span class="badge warning" v-else-if="validationResults.some(r => r.status === 'success')">
-              ⚠️ 部分成功 ({{ validationResults.filter(r => r.status === 'success').length }}/{{ getValidHosts().length }})
+            <span class="badge warning" v-else-if="validationResults.some(r => r.status === 'success' || r.status === 'warning')">
+              ⚠️ 部分可用 ({{ validationResults.filter(r => r.status === 'success' && r.has_fio).length }}/{{ getValidHosts().length }})
             </span>
             <span class="badge error" v-else>
               ❌ 连接失败
@@ -57,7 +54,6 @@
           </div>
         </div>
 
-        <!-- Test Type -->
         <div class="section">
           <h2 class="section-title">测试类型</h2>
 
@@ -97,7 +93,7 @@
             </div>
           </div>
         </div>
-        <!-- Test Engine -->
+
         <div class="section">
           <h2 class="section-title">测试引擎</h2>
 
@@ -115,11 +111,9 @@
           </div>
         </div>
 
-        <!-- Test Parameters -->
         <div class="section">
           <h2 class="section-title">测试参数</h2>
 
-          <!-- RBD: 卷名称和测试大小在同一行 -->
           <div v-if="params.ioengine === 'rbd'" class="form-row">
             <div class="form-group">
               <label>卷名称:</label>
@@ -131,25 +125,20 @@
             </div>
           </div>
 
-          <!-- libaio: 卷名称和测试大小各占一行，使用占位符 -->
           <template v-else>
             <div class="form-row">
               <div class="form-group">
                 <label>卷名称:</label>
                 <input type="text" v-model="params.filename" placeholder="/dev/sdb">
               </div>
-              <div class="form-group">
-                <!-- 占位符 -->
-              </div>
+              <div class="form-group"></div>
             </div>
             <div class="form-row">
               <div class="form-group">
                 <label>测试大小:</label>
                 <input type="text" v-model="params.size" placeholder="100G">
               </div>
-              <div class="form-group">
-                <!-- 占位符 -->
-              </div>
+              <div class="form-group"></div>
             </div>
           </template>
 
@@ -218,54 +207,47 @@
           </div>
         </div>
 
-        <!-- Actions -->
         <div class="section actions-section">
-          <button
-            class="btn btn-primary btn-full"
-            @click="startTest"
-            :disabled="!canStart || isTesting"
-          >
+          <button class="btn btn-primary btn-full" @click="startTest" :disabled="!canStart || isTesting">
             {{ isTesting ? '测试中...' : '开始测试' }}
           </button>
 
-          <button
-            v-if="isTesting"
-            class="btn btn-danger btn-full"
-            @click="stopTest"
-          >
+          <button v-if="isTesting" class="btn btn-danger btn-full" @click="stopTest">
             停止测试
           </button>
         </div>
       </div>
 
-      <!-- Right Panel: Visualization -->
       <div class="right-panel">
-        <!-- Top Row: Summary Cards + Bandwidth Chart -->
         <div class="top-row">
-          <!-- Summary Cards (2x2 grid) -->
           <div class="summary-cards">
             <div class="card">
               <div class="card-icon">⚡</div>
               <div class="card-content">
                 <div class="card-label">平均 I/O 速率</div>
                 <div class="card-value">{{ avgIops }}</div>
+                <div v-if="mixStatsMode" class="card-subvalue">读 {{ avgReadIops }} / 写 {{ avgWriteIops }}</div>
+                <div v-else class="card-subvalue card-subvalue-placeholder">&nbsp;</div>
                 <div class="card-unit">IOPS</div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-icon">📈</div>
-              <div class="card-content">
-                <div class="card-label">平均吞吐量</div>
-                <div class="card-value">{{ avgBw }}</div>
-                <div class="card-unit">MB/s</div>
               </div>
             </div>
             <div class="card">
               <div class="card-icon">⏱️</div>
               <div class="card-content">
-                <div class="card-label">平均响应时间</div>
+                <div class="card-label">响应时间</div>
                 <div class="card-value">{{ avgLat }}</div>
+                <div class="card-subvalue card-subvalue-placeholder">&nbsp;</div>
                 <div class="card-unit">ms</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-icon">📈</div>
+              <div class="card-content">
+                <div class="card-label">吞吐量</div>
+                <div class="card-value">{{ avgBw }}</div>
+                <div v-if="mixStatsMode" class="card-subvalue">读 {{ avgReadBw }} / 写 {{ avgWriteBw }}</div>
+                <div v-else class="card-subvalue card-subvalue-placeholder">&nbsp;</div>
+                <div class="card-unit">MB/s</div>
               </div>
             </div>
             <div class="card card-empty">
@@ -273,19 +255,18 @@
               <div class="card-content">
                 <div class="card-label">运行时长</div>
                 <div class="card-value">{{ elapsedTime }}</div>
+                <div class="card-subvalue card-subvalue-placeholder">&nbsp;</div>
                 <div class="card-unit"></div>
               </div>
             </div>
           </div>
 
-          <!-- Bandwidth Chart -->
           <div class="chart-wrapper">
             <h3>吞吐量 (MB/s)</h3>
             <canvas ref="bwChart"></canvas>
           </div>
         </div>
 
-        <!-- Middle Row: IOPS Chart + Latency Chart -->
         <div class="middle-row">
           <div class="chart-wrapper">
             <h3>I/O 速率 (IOPS)</h3>
@@ -297,7 +278,6 @@
           </div>
         </div>
 
-        <!-- Terminal Output -->
         <div class="terminal-section">
           <div class="terminal-header">
             <div class="terminal-title-group">
@@ -309,7 +289,6 @@
             </div>
           </div>
 
-          <!-- Progress Bar -->
           <div v-if="isTesting" class="progress-container">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
@@ -317,7 +296,6 @@
             <div class="progress-text">{{ elapsedTime }} / {{ params.runtime }}s ({{ progressPercent.toFixed(0) }}%)</div>
           </div>
 
-          <!-- Host Tabs -->
           <div v-if="connectedHosts.length > 0" class="host-tabs">
             <div
               v-for="(host, index) in connectedHosts"
@@ -347,7 +325,6 @@
       </div>
     </div>
 
-    <!-- Notification -->
     <div class="notification" :class="notification.type" v-if="notification.show">
       {{ notification.message }}
     </div>
@@ -361,21 +338,19 @@ import PageHeader from '@/components/common/PageHeader.vue'
 
 const API_BASE = `/api/v1/perf/fio`
 
-// WebSocket
 let ws = null
 const wsConnected = ref(false)
+let wsConnectPromise = null
+let pendingJoinTaskId = null
 
-// Hosts text
 const hostsText = ref('')
 
-// Configuration
 const config = reactive({
   username: 'root',
   password: '',
   port: 22
 })
 
-// Test parameters
 const params = reactive({
   rw: 'randread',
   rwmixread: 70,
@@ -390,7 +365,6 @@ const params = reactive({
   cpus_allowed: ''
 })
 
-// RW labels
 const rwLabels = {
   randread: '随机读',
   randwrite: '随机写',
@@ -399,27 +373,28 @@ const rwLabels = {
   write: '顺序写'
 }
 
-// Test state
 const isTesting = ref(false)
 const testCompleted = ref(false)
 const taskId = ref('')
 const pollTimer = ref(null)
 const elapsedSeconds = ref(0)
 
-// Stats
-const currentStats = reactive({ iops: 0, bw: 0, lat: 0 })
+const currentStats = reactive({ iops: 0, bw: 0, lat: 0, readIops: 0, writeIops: 0, readBw: 0, writeBw: 0 })
 const avgIops = ref('--')
 const avgBw = ref('--')
 const avgLat = ref('--')
+const avgReadIops = ref('--')
+const avgWriteIops = ref('--')
+const avgReadBw = ref('--')
+const avgWriteBw = ref('--')
+const mixStatsMode = computed(() => params.rw === 'randrw')
 const maxStats = reactive({ iops: 0, bw: 0, lat: 0 })
 const minStats = reactive({ iops: 999999999, bw: 999999999, lat: 999999999 })
 const finalStats = reactive({ iops: 0, bw: 0, lat: 0 })
 
-// 多主机统计数据收集
-const hostStats = ref({}) // 存储每个主机的最新统计数据
-let statsAggregationTimer = null // 聚合定时器
+const hostStats = ref({})
+let statsAggregationTimer = null
 
-// Chart data
 const iopsChart = ref(null)
 const bwChart = ref(null)
 const latChart = ref(null)
@@ -431,24 +406,20 @@ const chartData = reactive({
   labels: []
 })
 
-// Terminal
 const terminalLines = ref([])
 const terminalWindow = ref(null)
-const hostTerminals = ref({}) // 每个主机的独立终端输出
-const activeHostTab = ref('') // 当前激活的主机标签
+const hostTerminals = ref({})
+const activeHostTab = ref('')
 
-// Validation
 const validationResults = ref([])
 const connectedHosts = ref([])
 
-// Notification
 const notification = reactive({
   show: false,
   message: '',
   type: 'info'
 })
 
-// Watch ioengine changes to update filename default
 watch(() => params.ioengine, (newEngine) => {
   if (newEngine === 'rbd') {
     if (params.filename === '/dev/sdb' || !params.filename) {
@@ -461,7 +432,6 @@ watch(() => params.ioengine, (newEngine) => {
   }
 })
 
-// Computed
 const canValidate = computed(() => {
   const validHosts = getValidHosts()
   return validHosts.length > 0 && config.username && config.password
@@ -470,7 +440,7 @@ const canValidate = computed(() => {
 const canStart = computed(() => {
   const validHosts = getValidHosts()
   return validHosts.length > 0 && validationResults.value.length > 0 &&
-    validationResults.value.every(r => r.status === 'success' || r.status === 'warning')
+    validationResults.value.every(r => r.status === 'success' && r.has_fio)
 })
 
 const elapsedTime = computed(() => {
@@ -483,7 +453,6 @@ const progressPercent = computed(() => {
   return Math.min(100, (elapsedSeconds.value / params.runtime) * 100)
 })
 
-// Get valid hosts
 const getValidHosts = () => {
   return hostsText.value
     .split('\n')
@@ -491,7 +460,6 @@ const getValidHosts = () => {
     .filter(h => h)
 }
 
-// Notification
 const showNotification = (message, type = 'info') => {
   notification.message = message
   notification.type = type
@@ -501,13 +469,10 @@ const showNotification = (message, type = 'info') => {
   }, 3000)
 }
 
-// Add terminal output
 const addTerminalLine = (type, text, host = null) => {
   if (host && hostTerminals.value[host]) {
-    // 添加到特定主机的终端
     hostTerminals.value[host].push({ type, text })
   } else {
-    // 添加到通用终端（用于非主机特定的消息）
     terminalLines.value.push({ type, text })
   }
 
@@ -546,7 +511,6 @@ const downloadOutput = () => {
   URL.revokeObjectURL(url)
 }
 
-// 获取当前激活标签的终端输出
 const getCurrentTerminalLines = () => {
   if (activeHostTab.value && hostTerminals.value[activeHostTab.value]) {
     return hostTerminals.value[activeHostTab.value]
@@ -554,47 +518,61 @@ const getCurrentTerminalLines = () => {
   return terminalLines.value
 }
 
-// WebSocket functions
 const connectWebSocket = () => {
+  if (ws && wsConnected.value) {
+    return Promise.resolve()
+  }
+
+  if (wsConnectPromise) {
+    return wsConnectPromise
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${protocol}//${window.location.host}/api/v1/perf/fio/ws`
 
-  ws = new WebSocket(wsUrl)
+  wsConnectPromise = new Promise((resolve, reject) => {
+    ws = new WebSocket(wsUrl)
 
-  ws.onopen = () => {
-    wsConnected.value = true
-    console.log('FIO WebSocket connected')
-  }
-
-  ws.onmessage = (event) => {
-    try {
-      const message = JSON.parse(event.data)
-      handleWebSocketMessage(message)
-    } catch (error) {
-      console.error('WebSocket message parse error:', error)
+    ws.onopen = () => {
+      wsConnected.value = true
+      if (pendingJoinTaskId) {
+        joinTask(pendingJoinTaskId)
+        pendingJoinTaskId = null
+      }
+      resolve()
     }
-  }
 
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error)
-    wsConnected.value = false
-  }
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        handleWebSocketMessage(message)
+      } catch (error) {
+        console.error('WebSocket message parse error:', error)
+      }
+    }
 
-  ws.onclose = () => {
-    wsConnected.value = false
-    console.log('FIO WebSocket disconnected')
-  }
+    ws.onerror = (error) => {
+      wsConnected.value = false
+      wsConnectPromise = null
+      reject(new Error('WebSocket 连接失败'))
+    }
+
+    ws.onclose = () => {
+      wsConnected.value = false
+      wsConnectPromise = null
+    }
+  })
+
+  return wsConnectPromise
 }
 
 const handleWebSocketMessage = (message) => {
   const { type, data, stats, host } = message
 
   if (type === 'joined') {
-    console.log('Joined FIO task:', message.task_id)
+    return
   } else if (type === 'output') {
-    // 实时输出到终端
     if (data) {
-      // 尝试从消息中提取主机信息
       let targetHost = host
       if (!targetHost && data.includes('[')) {
         const match = data.match(/\[([^\]]+)\]/)
@@ -603,7 +581,6 @@ const handleWebSocketMessage = (message) => {
         }
       }
 
-      // 如果无法确定主机，使用当前激活的标签页
       if (!targetHost && activeHostTab.value) {
         targetHost = activeHostTab.value
       }
@@ -616,33 +593,31 @@ const handleWebSocketMessage = (message) => {
       })
     }
   } else if (type === 'stats') {
-    // 更新统计数据 - 支持多主机聚合
-    // console.log('📊 Received stats message:', stats, 'from host:', host)
     if (stats && host) {
-      // 存储该主机的统计数据
       hostStats.value[host] = {
         iops: stats.iops || 0,
         bw: stats.bw_mb || 0,
-        lat: (stats.latency_us / 1000) || 0,  // Convert to ms
+        lat: (stats.latency_us / 1000) || 0,
+        readIops: stats.read_iops || 0,
+        writeIops: stats.write_iops || 0,
+        readBw: stats.read_bw_mb || 0,
+        writeBw: stats.write_bw_mb || 0,
         timestamp: Date.now()
       }
 
-      // console.log('📈 Host stats updated:', host, hostStats.value[host])
-
-      // 清除之前的聚合定时器
       if (statsAggregationTimer) {
         clearTimeout(statsAggregationTimer)
       }
 
-      // 延迟 200ms 聚合数据（等待所有主机的数据到达）
       statsAggregationTimer = setTimeout(() => {
         aggregateAndUpdateStats()
       }, 200)
     }
   } else if (type === 'completed') {
-    finishTest()
+    finishTest(message.status || 'completed')
   } else if (type === 'error') {
-    addTerminalLine('error', message.error || '未知错误')
+    addTerminalLine('error', message.error || '未知错误', host)
+    finishTest('error')
   }
 }
 
@@ -652,10 +627,16 @@ const joinTask = (taskId) => {
       action: 'join',
       task_id: taskId
     }))
+    return true
   }
+
+  pendingJoinTaskId = taskId
+  return false
 }
 
 const disconnectWebSocket = () => {
+  pendingJoinTaskId = null
+  wsConnectPromise = null
   if (ws) {
     ws.close()
     ws = null
@@ -663,7 +644,6 @@ const disconnectWebSocket = () => {
   }
 }
 
-// Initialize charts
 const initCharts = () => {
   const createChart = (ref, key, color) => {
     if (!ref) return null
@@ -687,15 +667,8 @@ const initCharts = () => {
         animation: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: {
-            display: true,
-            grid: { display: false }
-          },
-          y: {
-            display: true,
-            beginAtZero: true,
-            grid: { color: '#f0f0f0' }
-          }
+          x: { display: true, grid: { display: false } },
+          y: { display: true, beginAtZero: true, grid: { color: '#f0f0f0' } }
         }
       }
     })
@@ -706,121 +679,72 @@ const initCharts = () => {
   charts.lat = createChart(latChart.value, 'lat', '#ff9800')
 }
 
-// 聚合多主机统计数据
 const aggregateAndUpdateStats = () => {
   const hosts = Object.keys(hostStats.value)
   if (hosts.length === 0) return
 
-  // console.log('🔄 Aggregating stats from', hosts.length, 'hosts')
-
-  // IOPS 和带宽：多主机相加
   let totalIops = 0
   let totalBw = 0
   let totalLat = 0
+  let totalReadIops = 0
+  let totalWriteIops = 0
+  let totalReadBw = 0
+  let totalWriteBw = 0
   let latCount = 0
 
   hosts.forEach(host => {
     const stats = hostStats.value[host]
     totalIops += stats.iops
     totalBw += stats.bw
+    totalReadIops += stats.readIops || 0
+    totalWriteIops += stats.writeIops || 0
+    totalReadBw += stats.readBw || 0
+    totalWriteBw += stats.writeBw || 0
     if (stats.lat > 0) {
       totalLat += stats.lat
       latCount++
     }
   })
 
-  // 延迟：多主机平均值
-  const avgLat = latCount > 0 ? totalLat / latCount : 0
+  currentStats.readIops = totalReadIops
+  currentStats.writeIops = totalWriteIops
+  currentStats.readBw = totalReadBw
+  currentStats.writeBw = totalWriteBw
 
-  // 更新当前统计数据
+  const avgLatency = latCount > 0 ? totalLat / latCount : 0
+
   currentStats.iops = totalIops
   currentStats.bw = totalBw
-  currentStats.lat = avgLat
+  currentStats.lat = avgLatency
 
-  // console.log('📊 Aggregated stats:', {
-  //   hosts: hosts.length,
-  //   iops: totalIops,
-  //   bw: totalBw,
-  //   lat: avgLat
-  // })
-
-  // 更新图表
   updateCharts()
 }
 
-// Update charts
 const updateCharts = () => {
-  // console.log('🔄 updateCharts called, currentStats:', currentStats)
-
-  // 不再限制数据点数量，显示完整测试时长
-  // 移除了 60 个数据点的限制
-
   chartData.labels.push(elapsedTime.value)
   chartData.iops.push(currentStats.iops)
   chartData.bw.push(currentStats.bw)
   chartData.lat.push(currentStats.lat)
 
-  // console.log('📊 Chart data updated:', {
-  //   labels: chartData.labels.length,
-  //   iops: chartData.iops[chartData.iops.length - 1],
-  //   bw: chartData.bw[chartData.bw.length - 1],
-  //   lat: chartData.lat[chartData.lat.length - 1]
-  // })
-
-  // console.log('🎨 Charts object:', {
-  //   iops: charts.iops ? 'initialized' : 'null',
-  //   bw: charts.bw ? 'initialized' : 'null',
-  //   lat: charts.lat ? 'initialized' : 'null'
-  // })
-
-  // 更新每个图表的数据 - 使用 toRaw 避免响应式循环引用
   if (charts.iops) {
     charts.iops.data.labels = toRaw(chartData.labels)
     charts.iops.data.datasets[0].data = toRaw(chartData.iops)
     charts.iops.update('none')
-    // console.log('✅ IOPS chart updated')
   }
 
   if (charts.bw) {
     charts.bw.data.labels = toRaw(chartData.labels)
     charts.bw.data.datasets[0].data = toRaw(chartData.bw)
     charts.bw.update('none')
-    // console.log('✅ BW chart updated')
   }
 
   if (charts.lat) {
     charts.lat.data.labels = toRaw(chartData.labels)
     charts.lat.data.datasets[0].data = toRaw(chartData.lat)
     charts.lat.update('none')
-    // console.log('✅ Latency chart updated')
   }
 }
 
-// Update stats
-const updateStats = () => {
-  if (currentStats.iops > 0) {
-    const currentAvgIops = avgIops.value === '--' ? 0 : parseFloat(avgIops.value)
-    const count = chartData.iops.length
-    avgIops.value = ((currentAvgIops * count + currentStats.iops) / (count + 1)).toFixed(0)
-    maxStats.iops = Math.max(maxStats.iops, currentStats.iops)
-    minStats.iops = Math.min(minStats.iops, currentStats.iops)
-  }
-
-  if (currentStats.bw > 0) {
-    const currentAvgBw = avgBw.value === '--' ? 0 : parseFloat(avgBw.value)
-    const count = chartData.bw.length
-    avgBw.value = ((currentAvgBw * count + currentStats.bw) / (count + 1)).toFixed(1)
-    maxStats.bw = Math.max(maxStats.bw, currentStats.bw)
-  }
-
-  if (currentStats.lat > 0) {
-    const currentAvgLat = avgLat.value === '--' ? 0 : parseFloat(avgLat.value)
-    const count = chartData.lat.length
-    avgLat.value = ((currentAvgLat * count + currentStats.lat) / (count + 1)).toFixed(2)
-  }
-}
-
-// Validate hosts
 const validateHosts = async () => {
   const validHosts = getValidHosts()
   addTerminalLine('info', `验证 ${validHosts.length} 台主机连接...`)
@@ -832,26 +756,24 @@ const validateHosts = async () => {
       body: JSON.stringify({
         hosts: validHosts,
         username: config.username,
-        password: config.password
+        password: config.password,
+        port: config.port
       })
     })
 
     const data = await response.json()
     validationResults.value = data.results
 
-    // Update connected hosts list
     connectedHosts.value = data.results
-      .filter(r => r.status === 'success')
+      .filter(r => r.status === 'success' || r.status === 'warning')
       .map(r => r.host)
 
-    // 初始化每个主机的终端
     connectedHosts.value.forEach(host => {
       if (!hostTerminals.value[host]) {
         hostTerminals.value[host] = []
       }
     })
 
-    // 设置第一个主机为激活标签
     if (connectedHosts.value.length > 0 && !activeHostTab.value) {
       activeHostTab.value = connectedHosts.value[0]
     }
@@ -861,10 +783,17 @@ const validateHosts = async () => {
       addTerminalLine(r.status === 'error' ? 'error' : 'info', `${icon} ${r.host}: ${r.message}`)
     })
 
+    const hasError = data.results.some(r => r.status === 'error')
+    const hasWarning = data.results.some(r => r.status === 'warning')
+
     if (data.results.every(r => r.status === 'success')) {
       showNotification('所有主机连接成功', 'success')
-    } else {
+    } else if (hasError && hasWarning) {
+      showNotification('部分主机连接失败，部分主机未安装 FIO', 'warning')
+    } else if (hasError) {
       showNotification('部分主机连接失败', 'warning')
+    } else if (hasWarning) {
+      showNotification('部分主机未安装 FIO', 'warning')
     }
   } catch (error) {
     addTerminalLine('error', `验证失败: ${error.message}`)
@@ -872,41 +801,46 @@ const validateHosts = async () => {
   }
 }
 
-// Start test
 const startTest = async () => {
   const validHosts = getValidHosts()
 
-  // Generate FIO command for console output
   let fioCommand = 'fio --direct=1'
 
   if (params.ioengine === 'rbd') {
-    // RBD engine command
     fioCommand += ` --ioengine=rbd --pool=${params.pool || 'pool-rbdtest1'} --rbdname=${params.filename || 'rbdtest1'}`
   } else {
-    // libaio engine command
     fioCommand += ` --filename=${params.filename || '/dev/sdb'} --ioengine=libaio`
   }
 
   fioCommand += ` --iodepth=${params.iodepth} --numjobs=${params.numjobs} --rw=${params.rw} --bs=${params.bs}`
+  if (params.rw === 'randrw') {
+    fioCommand += ` --rwmixread=${params.rwmixread}`
+  }
   fioCommand += ` --group_reporting --name=mytest --size=${params.size || '100G'}`
-  fioCommand += ` --status-interval=1`  // 每秒输出一次状态
+  fioCommand += ' --status-interval=1'
 
   if (params.runtime) {
     fioCommand += ` --runtime=${params.runtime} --time_based`
   }
 
-  // Add CPU affinity if specified
   if (params.cpus_allowed && params.cpus_allowed.trim()) {
     fioCommand += ` --cpus_allowed=${params.cpus_allowed} --cpus_allowed_policy=split`
   }
 
-  // Reset stats
   currentStats.iops = 0
   currentStats.bw = 0
   currentStats.lat = 0
+  currentStats.readIops = 0
+  currentStats.writeIops = 0
+  currentStats.readBw = 0
+  currentStats.writeBw = 0
   avgIops.value = '--'
   avgBw.value = '--'
   avgLat.value = '--'
+  avgReadIops.value = '--'
+  avgWriteIops.value = '--'
+  avgReadBw.value = '--'
+  avgWriteBw.value = '--'
   maxStats.iops = 0
   maxStats.bw = 0
   elapsedSeconds.value = 0
@@ -914,10 +848,10 @@ const startTest = async () => {
   chartData.bw = []
   chartData.lat = []
   chartData.labels = []
-  hostStats.value = {} // 清空多主机统计数据
+  hostStats.value = {}
 
   addTerminalLine('info', '='.repeat(50))
-  addTerminalLine('info', `开始 FIO 测试`)
+  addTerminalLine('info', '开始 FIO 测试')
   addTerminalLine('info', `类型: ${rwLabels[params.rw]}, 块大小: ${params.bs}, IO深度: ${params.iodepth}`)
   addTerminalLine('info', `线程: ${params.numjobs}, 时长: ${params.runtime}s, 主机数: ${validHosts.length}`)
   addTerminalLine('info', `命令: ${fioCommand}`)
@@ -930,6 +864,7 @@ const startTest = async () => {
         hosts: validHosts,
         username: config.username,
         password: config.password,
+        port: config.port,
         params: {
           rw: params.rw,
           rwmixread: params.rwmixread,
@@ -953,18 +888,9 @@ const startTest = async () => {
       isTesting.value = true
       testCompleted.value = false
 
-      // 连接 WebSocket 并加入任务
-      if (!wsConnected.value) {
-        connectWebSocket()
-        // 等待连接建立后加入任务
-        setTimeout(() => {
-          joinTask(taskId.value)
-          startElapsedTimer()
-        }, 500)
-      } else {
-        joinTask(taskId.value)
-        startElapsedTimer()
-      }
+      await connectWebSocket()
+      joinTask(taskId.value)
+      startElapsedTimer()
 
       showNotification('测试已启动', 'success')
     } else {
@@ -977,18 +903,12 @@ const startTest = async () => {
   }
 }
 
-// Stop test
 const stopTest = async () => {
   if (taskId.value) {
-    // 通过 WebSocket 发送停止命令
     if (ws && wsConnected.value) {
-      ws.send(JSON.stringify({
-        action: 'stop',
-        task_id: taskId.value
-      }))
+      ws.send(JSON.stringify({ action: 'stop', task_id: taskId.value }))
     }
 
-    // 也调用 HTTP API 作为备份
     await fetch(`${API_BASE}/stop-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1006,7 +926,6 @@ const stopTest = async () => {
   showNotification('测试已停止', 'info')
 }
 
-// Elapsed timer
 const startElapsedTimer = () => {
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
@@ -1017,71 +936,20 @@ const startElapsedTimer = () => {
   }, 1000)
 }
 
-// Polling (保留作为备用，但不再使用)
-const startPolling = () => {
-  const elapsedTimer = setInterval(() => {
-    elapsedSeconds.value++
-  }, 1000)
-
-  pollTimer.value = setInterval(async () => {
-    if (!taskId.value) return
-
-    try {
-      const response = await fetch(`${API_BASE}/get-output?task_id=${taskId.value}`)
-      const data = await response.json()
-
-      if (data.status === 'success') {
-        // Update stats
-        const stats = data.stats || {}
-        currentStats.iops = stats.iops || 0
-        currentStats.bw = (stats.bw_mb || 0) / 1024  // Convert to MB/s from GB/s
-        currentStats.lat = (stats.latency_us || stats.clat_avg_us || 0) / 1000  // Convert to ms
-
-        updateStats()
-        updateCharts()
-
-        // Add output lines
-        if (data.output && data.output.length > 0) {
-          const lastLines = data.output.slice(-5)
-          lastLines.forEach(line => {
-            if (line.includes('iops=') || line.includes('bw=')) {
-              addTerminalLine('success', line.trim())
-            }
-          })
-        }
-
-        // Check completion
-        if (data.status === 'completed' || data.status === 'stopped') {
-          finishTest()
-        }
-      }
-    } catch (error) {
-      console.error('Polling error:', error)
-    }
-  }, 500)
-
-  // Store timer references
-  pollTimer.value.elapsed = elapsedTimer
-}
-
-// Finish test
-const finishTest = () => {
+const finishTest = (status = 'completed') => {
   isTesting.value = false
-  testCompleted.value = true
+  testCompleted.value = status === 'completed' || status === 'partial'
 
-  // Clear timers
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
     pollTimer.value = null
   }
 
-  // 清理聚合定时器
   if (statsAggregationTimer) {
     clearTimeout(statsAggregationTimer)
     statsAggregationTimer = null
   }
 
-  // 计算平均值（从图表数据中计算）
   if (chartData.iops.length > 0) {
     const sumIops = chartData.iops.reduce((a, b) => a + b, 0)
     avgIops.value = (sumIops / chartData.iops.length).toFixed(0)
@@ -1097,19 +965,31 @@ const finishTest = () => {
     avgLat.value = (sumLat / chartData.lat.length).toFixed(2)
   }
 
-  // Final stats
+  if (mixStatsMode.value) {
+    avgReadIops.value = currentStats.readIops.toFixed(0)
+    avgWriteIops.value = currentStats.writeIops.toFixed(0)
+    avgReadBw.value = currentStats.readBw.toFixed(1)
+    avgWriteBw.value = currentStats.writeBw.toFixed(1)
+  }
+
   finalStats.iops = parseFloat(avgIops.value) || 0
   finalStats.bw = parseFloat(avgBw.value) || 0
   finalStats.lat = parseFloat(avgLat.value) || 0
 
-  addTerminalLine('success', '='.repeat(50))
-  addTerminalLine('success', `测试完成!`)
-  addTerminalLine('success', `平均 IOPS: ${avgIops.value}, 平均带宽: ${avgBw.value} MB/s, 平均延迟: ${avgLat.value} ms`)
+  const statusText = status === 'partial' ? '测试部分完成' : status === 'stopped' ? '测试已停止' : status === 'error' ? '测试失败' : '测试完成'
+  const lineType = status === 'error' ? 'error' : status === 'stopped' ? 'warning' : 'success'
+  const notificationType = status === 'error' ? 'error' : status === 'stopped' ? 'info' : status === 'partial' ? 'warning' : 'success'
 
-  showNotification('测试完成', 'success')
+  addTerminalLine(lineType, '='.repeat(50))
+  addTerminalLine(lineType, `${statusText}!`)
+  addTerminalLine(lineType, `平均 IOPS: ${avgIops.value}, 平均带宽: ${avgBw.value} MB/s, 平均延迟: ${avgLat.value} ms`)
+  if (mixStatsMode.value) {
+    addTerminalLine(lineType, `混合读写拆分: 读 IOPS ${avgReadIops.value}, 写 IOPS ${avgWriteIops.value}, 读带宽 ${avgReadBw.value} MB/s, 写带宽 ${avgWriteBw.value} MB/s`)
+  }
+
+  showNotification(statusText, notificationType)
 }
 
-// Cleanup
 onUnmounted(() => {
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
@@ -1120,13 +1000,13 @@ onUnmounted(() => {
   disconnectWebSocket()
 })
 
-// Initialize charts on mount
 onMounted(() => {
   nextTick(() => {
     initCharts()
+    Object.values(charts).forEach(chart => {
+      if (chart) chart.update('none')
+    })
   })
-  // 初始化时连接 WebSocket
-  connectWebSocket()
 })
 </script>
 
@@ -1168,509 +1048,81 @@ onMounted(() => {
   border-bottom: 2px solid #6B5DD3;
 }
 
-.form-group {
-  margin-bottom: 12px;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.form-row .form-group {
-  margin-bottom: 0;
-}
-
-.form-group label {
-  display: block;
-  color: #666;
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
+.form-group { margin-bottom: 15px; }
+.form-group label { display: block; font-size: 13px; color: #666; margin-bottom: 8px; }
 .form-group input,
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
   font-size: 14px;
-  font-family: monospace;
+  transition: all 0.3s;
 }
-
-.form-group textarea {
-  resize: vertical;
-  min-height: 60px;
-}
-
 .form-group input:focus,
 .form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #6B5DD3;
-  box-shadow: 0 0 0 3px rgba(107, 93, 211, 0.1);
-}
-
-.hosts-section {
-  margin: 15px 0;
-}
-
-.hosts-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: #666;
-}
-
-.btn-small {
-  padding: 4px 8px;
-  font-size: 12px;
-  background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 100%);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.host-list {
-  max-height: 150px;
-  overflow-y: auto;
-}
-
-.host-item {
-  display: flex;
-  gap: 5px;
-  margin-bottom: 5px;
-}
-
-.host-item input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.btn-remove {
-  width: 24px;
-  height: 24px;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.btn-compact {
-  padding: 6px 12px !important;
-  font-size: 12px !important;
-  width: auto !important;
-}
-
-.btn-full {
-  width: 100%;
-}
-
-.btn-large {
-  padding: 15px;
-  font-size: 16px;
-}
-
-.validation-summary {
-  margin-top: 10px;
-  text-align: center;
-}
-
-.badge {
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 13px;
-}
-
-.badge.success {
-  background: #e8f5e9;
-  color: #4CAF50;
-}
-
-.badge.warning {
-  background: #fff3e0;
-  color: #ff9800;
-}
-
-.badge.error {
-  background: #ffebee;
-  color: #f44336;
-}
-
-.test-type-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.radio-card {
-  padding: 10px 5px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.3s;
-}
-
-.radio-card:hover {
-  border-color: #6B5DD3;
-}
-
-.radio-card.active {
-  border-color: #6B5DD3;
-  background: rgba(107, 93, 211, 0.1);
-}
-
-.radio-card input {
-  display: none;
-}
-
-.radio-icon {
-  font-size: 24px;
-  display: block;
-  margin-bottom: 5px;
-}
-
-.radio-name {
-  font-size: 12px;
-  color: #333;
-}
-
-.mix-slider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.mix-slider input {
-  flex: 1;
-}
-
-.mix-label {
-  font-size: 13px;
-  color: #666;
-  min-width: 80px;
-}
-
-.params-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.actions-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.right-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.top-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-
-.summary-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-
-.card {
-  background: white;
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.card-icon {
-  font-size: 20px;
-}
-
-.card-content {
-  flex: 1;
-}
-
-.card-label {
-  font-size: 13px;
-  color: #999;
-  margin-bottom: 5px;
-}
-
-.card-value {
-  font-size: 16px;
-  line-height: 1.6;
-  font-weight: bold;
-  color: #6B5DD3;
-}
-
-.card-unit {
-  font-size: 12px;
-  color: #999;
-  margin-top: 2px;
-}
-
-.middle-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-
-.chart-wrapper {
-  background: white;
-  padding: 15px;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.chart-wrapper h3 {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #f0f0f0;
-}
-
-.chart-wrapper canvas {
-  max-height: 200px !important;
-  height: 200px !important;
-}
-
-.terminal-section {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  display: flex;
-  flex-direction: column;
-}
-
-.terminal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin: 0;
-  margin-bottom: 15px;
-  flex-shrink: 0;
-}
-
-.terminal-title-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 10px;
-  flex: 1;
-}
-
-.terminal-icon {
-  font-size: 20px;
-}
-
-.terminal-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-}
-
-.terminal-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.terminal-window {
-  background: #1e1e1e;
-  border-radius: 8px;
-  padding: 15px;
-  height: 705px;
-  overflow-y: auto;
-  font-family: 'Courier New', monospace;
-  font-size: 13px;
-}
-
-.terminal-line {
-  padding: 2px 0;
-  color: #d4d4d4;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
-
-.terminal-line.success {
-  color: #4CAF50;
-}
-
-.terminal-line.error {
-  color: #f44336;
-}
-
-.terminal-line.info {
-  color: #2196F3;
-}
-
-.terminal-empty {
-  color: #666;
-  text-align: center;
-  padding: 20px;
-}
-
-.host-tabs {
-  display: flex;
-  gap: 5px;
-  margin-bottom: 15px;
-  border-bottom: 2px solid #e0e0e0;
-}
-
-.host-tab {
-  padding: 8px 16px;
-  background: #f5f5f5;
-  border: 1px solid #e0e0e0;
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  cursor: pointer;
-  font-size: 13px;
-  color: #666;
-  transition: all 0.3s;
-  user-select: none;
-}
-
-.host-tab:hover {
-  background: #e8e8e8;
-  color: #333;
-}
-
-.host-tab.active {
-  background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 100%);
-  color: white;
-  border-color: #6B5DD3;
-  font-weight: 600;
-}
-
-.connected-hosts {
-  margin-bottom: 15px;
-}
-
-.connected-hosts-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.host-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  background: linear-gradient(135deg, #6B5DD3 0%, #8B7FE8 100%);
-  color: white;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.progress-container {
-  margin-bottom: 15px;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 8px;
-  background: #e0e0e0;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 5px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #6B5DD3 0%, #8B7FE8 50%, #9B8FF8 100%);
-  transition: width 0.3s ease;
-  border-radius: 4px;
-}
-
-.progress-text {
-  font-size: 12px;
-  color: #666;
-  text-align: center;
-}
-
-.notification {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  padding: 15px 20px;
-  border-radius: 8px;
-  color: white;
-  font-size: 14px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  animation: slideIn 0.3s ease-out;
-}
-
-.notification.success {
-  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-}
-
-.notification.error {
-  background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
-}
-
-.notification.info {
-  background: linear-gradient(135deg, #2196F3 0%, #0b7dda 100%);
-}
-
-.notification.warning {
-  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(400px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@media (max-width: 1200px) {
-  .main-content {
-    grid-template-columns: 1fr;
-  }
-
-  .charts-section {
-    grid-template-columns: 1fr;
-  }
-
-  .results-cards {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.form-group textarea:focus { outline: none; border-color: #6B5DD3; box-shadow: 0 0 0 3px rgba(107, 93, 211, 0.1); }
+.form-group textarea { resize: vertical; min-height: 70px; font-family: inherit; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.btn-full { width: 100%; }
+.validation-summary { margin-top: 10px; text-align: center; }
+.badge { padding: 4px 12px; border-radius: 20px; font-size: 13px; }
+.badge.success { background: #e8f5e9; color: #4CAF50; }
+.badge.warning { background: #fff3e0; color: #ff9800; }
+.badge.error { background: #ffebee; color: #f44336; }
+.test-type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.radio-card { padding: 10px 5px; border: 2px solid #e0e0e0; border-radius: 8px; cursor: pointer; text-align: center; transition: all 0.3s; }
+.radio-card:hover { border-color: #6B5DD3; }
+.radio-card.active { border-color: #6B5DD3; background: rgba(107, 93, 211, 0.1); }
+.radio-card input { display: none; }
+.radio-icon { font-size: 24px; display: block; margin-bottom: 5px; }
+.radio-name { font-size: 12px; color: #333; }
+.mix-slider { display: flex; align-items: center; gap: 10px; }
+.mix-slider input { flex: 1; }
+.mix-label { font-size: 13px; color: #666; min-width: 80px; }
+.params-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.actions-section { display: flex; flex-direction: column; gap: 10px; }
+.right-panel { display: flex; flex-direction: column; gap: 15px; }
+.top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.summary-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 15px; }
+.card-icon { font-size: 20px; }
+.card-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.card-label { font-size: 13px; color: #999; margin-bottom: 5px; }
+.card-value { font-size: 16px; line-height: 1.6; font-weight: bold; color: #6B5DD3; }
+.card-subvalue { margin-top: 4px; font-size: 12px; color: #666; line-height: 1.4; min-height: 17px; }
+.card-subvalue-placeholder { visibility: hidden; }
+.card-unit { font-size: 12px; color: #999; margin-top: 2px; }
+.middle-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.chart-wrapper { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+.chart-wrapper h3 { font-size: 14px; color: #333; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #f0f0f0; }
+.chart-wrapper canvas { max-height: 200px !important; height: 200px !important; }
+.card-empty .card-unit { visibility: hidden; }
+.terminal-section { background: rgba(255, 255, 255, 0.95); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; }
+.terminal-header { display: flex; justify-content: space-between; align-items: flex-start; margin: 0; margin-bottom: 15px; flex-shrink: 0; }
+.terminal-title { font-size: 16px; font-weight: 600; color: #333; }
+.terminal-controls { display: flex; gap: 10px; }
+.progress-container { margin-bottom: 15px; }
+.progress-bar { height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #6B5DD3, #8B7FE8); transition: width 1s linear; }
+.progress-text { margin-top: 5px; font-size: 12px; color: #666; text-align: center; }
+.host-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.host-tab { padding: 6px 12px; background: #f0f0f0; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.3s; }
+.host-tab.active { background: #6B5DD3; color: white; }
+.terminal-window { background: #1a1a1a; color: #00ff00; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; }
+.terminal-empty { color: #666; text-align: center; padding: 40px; }
+.terminal-line.error { color: #ff6b6b; }
+.terminal-line.success { color: #51cf66; }
+.notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 9999; animation: slideIn 0.3s ease; }
+.notification.success { background: #4CAF50; }
+.notification.error { background: #f44336; }
+.notification.info { background: #2196F3; }
+.notification.warning { background: #ff9800; }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@media (max-width: 768px) {
+  .main-content, .top-row, .middle-row { grid-template-columns: 1fr; }
+  .form-row, .params-grid, .summary-cards { grid-template-columns: 1fr; }
+  .test-type-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

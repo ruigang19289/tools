@@ -19,10 +19,6 @@ export default defineConfig({
         target: 'http://localhost:6000',
         changeOrigin: true
       },
-      '/api/ssh/ws': {
-        target: 'ws://localhost:6000',
-        ws: true
-      },
       '/api/v1/perf/fio/ws': {
         target: 'ws://localhost:6000',
         ws: true

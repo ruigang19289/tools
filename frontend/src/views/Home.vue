@@ -1,7 +1,8 @@
 <template>
   <div class="home">
     <!-- 工具分类网格 -->
-    <div class="tools-grid">
+    <div class="home-content">
+      <div class="tools-grid">
       <!-- 第一列：测试可视化工具 -->
       <div class="category">
         <div class="category-header">
@@ -102,11 +103,11 @@
           <li class="tool-item">
             <router-link
               to="/system/ansible"
-              :class="['tool-link', { disabled: !modulesStatus.ssh }]"
-              :event="modulesStatus.ssh ? 'click' : ''"
+              :class="['tool-link', { disabled: !modulesStatus.ansible }]"
+              :event="modulesStatus.ansible ? 'click' : ''"
             >
               <span class="tool-name">Ansible 管理平台</span>
-              <span class="tool-badge">{{ modulesStatus.ssh ? '可用' : '维护中' }}</span>
+              <span class="tool-badge">{{ modulesStatus.ansible ? '可用' : '维护中' }}</span>
             </router-link>
           </li>
           <li class="tool-item">
@@ -121,6 +122,9 @@
           </li>
         </ul>
       </div>
+      </div>
+
+      <div class="version-badge">Version {{ appVersion }}</div>
     </div>
   </div>
 </template>
@@ -128,8 +132,10 @@
 <script setup>
 import { MODULES_STATUS } from '@/config/modules.js'
 import { reactive } from 'vue'
+import pkg from '../../package.json'
 
 const modulesStatus = reactive(MODULES_STATUS)
+const appVersion = pkg.version
 </script>
 
 <style scoped>
@@ -140,6 +146,29 @@ const modulesStatus = reactive(MODULES_STATUS)
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.home-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.version-badge {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.version-badge:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .home::before {

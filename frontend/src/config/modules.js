@@ -14,6 +14,6 @@ export const MODULES_STATUS = {
   iperf3: true,
 
   // 系统工具
-  ssh: true,
+  ansible: true,
   system_init: true,
 }

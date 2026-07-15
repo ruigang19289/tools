@@ -113,29 +113,24 @@ import api from '@/api'
 
 Chart.register(...registerables)
 
-// 响应式数据
 const selectedDir = ref('')
 const autoRefresh = ref(true)
 const statusText = ref('连接中...')
 const statusClass = ref('')
 const lastUpdate = ref('')
 
-// 汇总数据
 const avgIoRate = ref('--')
 const avgThroughput = ref('--')
 const avgRespTime = ref('--')
 const avgCpu = ref('--')
 
-// 元数据
 const metadata = ref({
   created_time: '',
   run_definitions: []
 })
 
-// 目录列表
 const directories = ref([])
 
-// 图表引用
 const ioRateChart = ref(null)
 const throughputChart = ref(null)
 const respTimeChart = ref(null)
@@ -143,13 +138,9 @@ const cpuChart = ref(null)
 const queueDepthChart = ref(null)
 const respStddevChart = ref(null)
 
-// 图表实例
 let charts = {}
-
-// 定时器
 let autoRefreshTimer = null
 
-// 初始化图表
 const initCharts = () => {
   const chartConfigs = [
     { ref: ioRateChart, id: 'ioRateChart', label: 'I/O 速率', color: '#667eea', unit: 'IOPS' },
@@ -214,7 +205,6 @@ const initCharts = () => {
   })
 }
 
-// 更新图表
 const updateChart = (chartId, labels, data) => {
   if (charts[chartId]) {
     charts[chartId].data.labels = labels
@@ -223,7 +213,6 @@ const updateChart = (chartId, labels, data) => {
   }
 }
 
-// 更新汇总卡片
 const updateSummaryCards = (summary) => {
   if (summary.by_run_definition && Object.keys(summary.by_run_definition).length > 0) {
     updateGroupedSummaryCards(summary.by_run_definition)
@@ -235,7 +224,6 @@ const updateSummaryCards = (summary) => {
   }
 }
 
-// 更新分组汇总卡片
 const updateGroupedSummaryCards = (byRunDefinition) => {
   const sortedRds = Object.keys(byRunDefinition).sort()
   const units = ['avgIoRateUnit', 'avgThroughputUnit', 'avgRespTimeUnit', 'avgCpuUnit']
@@ -265,7 +253,6 @@ const updateGroupedSummaryCards = (byRunDefinition) => {
   }).join('')
 }
 
-// 更新状态
 const updateStatus = (status, text) => {
   statusText.value = text
   statusClass.value = ''
@@ -276,7 +263,6 @@ const updateStatus = (status, text) => {
   }
 }
 
-// 加载数据
 const loadData = async (testName) => {
   if (!testName) {
     return
@@ -297,11 +283,16 @@ const loadData = async (testName) => {
     updateStatus('connected', '已连接')
   } catch (error) {
     console.error('加载数据失败:', error)
-    updateStatus('error', '连接失败')
+    clearChartsAndSummary()
+    const responseError = error?.response?.data?.error
+    if (responseError && responseError.includes('不存在')) {
+      updateStatus('loading', '测试数据不存在或未生成')
+    } else {
+      updateStatus('error', responseError || '连接失败')
+    }
   }
 }
 
-// 更新图表数据
 const updateChartsData = (performanceData) => {
   if (!performanceData || performanceData.length === 0) {
     return
@@ -317,7 +308,6 @@ const updateChartsData = (performanceData) => {
   updateChart('respStddevChart', labels, performanceData.map(d => d.resp_stddev))
 }
 
-// 加载测试目录列表
 const loadTestDirectories = async () => {
   try {
     const data = await api.get('/perf/vdbench/list/')
@@ -325,17 +315,20 @@ const loadTestDirectories = async () => {
     directories.value = data.directories || []
 
     if (directories.value.length === 0) {
-      updateStatus('error', 'vdbench-result目录为空')
+      clearChartsAndSummary()
+      selectedDir.value = ''
+      updateStatus('loading', '暂无测试数据')
       return
     }
 
-    // 自动选择第一个有效的目录
     const firstValid = directories.value.find(dir => dir.has_summary)
     if (firstValid) {
       selectedDir.value = firstValid.path
       await loadTestDirectory(firstValid.path)
     } else {
-      updateStatus('error', '没有可用的测试数据')
+      clearChartsAndSummary()
+      selectedDir.value = ''
+      updateStatus('loading', '目录已加载，等待 summary.html')
     }
   } catch (error) {
     console.error('加载测试目录列表失败:', error)
@@ -343,7 +336,6 @@ const loadTestDirectories = async () => {
   }
 }
 
-// 加载指定测试目录
 const loadTestDirectory = async (dirPath) => {
   if (!dirPath) return
 
@@ -359,40 +351,34 @@ const loadTestDirectory = async (dirPath) => {
   }
 }
 
-// 目录选择变化
 const onDirChange = async () => {
   if (selectedDir.value) {
     const selectedDirInfo = directories.value.find(d => d.path === selectedDir.value)
     if (selectedDirInfo && !selectedDirInfo.has_summary) {
       clearChartsAndSummary()
-      updateStatus('error', '没有找到summary.html')
+      updateStatus('loading', '没有找到 summary.html，等待测试结果生成')
       return
     }
     await loadTestDirectory(selectedDir.value)
   }
 }
 
-// 刷新
 const refresh = async () => {
-  // 重新加载目录列表
   await loadTestDirectories()
 }
 
-// 清空图表和汇总数据
 const clearChartsAndSummary = () => {
-  // 清空汇总数据
   avgIoRate.value = '--'
   avgThroughput.value = '--'
   avgRespTime.value = '--'
   avgCpu.value = '--'
 
-  // 清空元数据
   metadata.value = {
     created_time: '',
     run_definitions: []
   }
+  lastUpdate.value = ''
 
-  // 清空所有图表
   Object.keys(charts).forEach(chartId => {
     if (charts[chartId]) {
       charts[chartId].data.labels = []
@@ -402,7 +388,6 @@ const clearChartsAndSummary = () => {
   })
 }
 
-// 自动刷新开关
 const toggleAutoRefresh = () => {
   if (autoRefresh.value) {
     startAutoRefresh()
@@ -411,7 +396,6 @@ const toggleAutoRefresh = () => {
   }
 }
 
-// 启动自动刷新
 const startAutoRefresh = () => {
   stopAutoRefresh()
   autoRefreshTimer = setInterval(() => {
@@ -421,7 +405,6 @@ const startAutoRefresh = () => {
   }, 30000)
 }
 
-// 停止自动刷新
 const stopAutoRefresh = () => {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer)
@@ -429,7 +412,6 @@ const stopAutoRefresh = () => {
   }
 }
 
-// 生命周期
 onMounted(async () => {
   await nextTick()
   initCharts()

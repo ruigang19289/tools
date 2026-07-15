@@ -110,7 +110,7 @@
             @click="executeFullInit"
             :disabled="!canStart || isRunning"
           >
-            {{ isRunning ? '执行中...' : '全部初始化' }}
+            {{ isRunning ? '执行中...' : '全部初始化（不含安全加固）' }}
           </button>
 
           <div class="quick-actions">
@@ -169,8 +169,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, watch } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { usePageStatePersistence } from '@/apps/common/usePageStatePersistence'
 
 const API_BASE = `/api/v1/system/system-init`
 
@@ -184,7 +185,7 @@ const hostnamePrefix = ref('node')
 // Config
 const config = reactive({
   ntpServers: 'ntp.aliyun.com',
-  managementCidr: '10.255.0.0/24',
+  managementCidr: '',
   hardenEtcd: true,
   hardenPostgresql: true,
   hardenElasticsearch: true,
@@ -263,12 +264,43 @@ const getValidHosts = () => {
   }))
 }
 
-const getValidHostnames = () => {
-  return hostnamesText.value
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line)
+const inferManagementCidr = () => {
+  const allIPs = parseIPRange(hostsText.value)
+  if (allIPs.length === 0) return ''
+
+  const firstIp = allIPs[0]
+  const parts = firstIp.split('.')
+  if (parts.length !== 4) return ''
+
+  return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`
 }
+
+watch(hostsText, () => {
+  const inferredCidr = inferManagementCidr()
+  if (inferredCidr) {
+    config.managementCidr = inferredCidr
+  }
+})
+
+watch(() => config.managementCidr, (value) => {
+  if (!value || !value.trim()) {
+    const inferredCidr = inferManagementCidr()
+    if (inferredCidr) {
+      config.managementCidr = inferredCidr
+    }
+  }
+})
+
+const initialManagementCidr = inferManagementCidr()
+if (initialManagementCidr) {
+  config.managementCidr = initialManagementCidr
+}
+
+if (!config.managementCidr) {
+  config.managementCidr = '10.255.0.0/24'
+}
+
+
 
 const showNotification = (message, type = 'info') => {
   notification.message = message
@@ -293,7 +325,7 @@ const addLog = (message, type = 'info') => {
 const executeFullInit = async () => {
   const hosts = getValidHosts()
 
-  await runTask('全部初始化', '/full-init', {
+  await runTask('全部初始化（不含安全加固）', '/full-init', {
     hostname_prefix: hostnamePrefix.value,
     ntp_servers: config.ntpServers,
     management_cidr: config.managementCidr,
@@ -528,6 +560,38 @@ const runTask = async (taskName, endpoint, extraData, customHosts = null) => {
     isRunning.value = false
   }
 }
+
+usePageStatePersistence('system_init_page_state', () => ({
+  hostsText: hostsText.value,
+  port: port.value,
+  username: username.value,
+  password: password.value,
+  hostnamePrefix: hostnamePrefix.value,
+  config: { ...config },
+  logs: logs.value,
+  results: results.value
+}), {
+  hydrate: (saved) => {
+    hostsText.value = saved.hostsText || ''
+    port.value = saved.port ?? 22
+    username.value = saved.username || 'root'
+    password.value = saved.password || ''
+    hostnamePrefix.value = saved.hostnamePrefix || 'node'
+    Object.assign(config, {
+      ntpServers: 'ntp.aliyun.com',
+      managementCidr: '',
+      hardenEtcd: true,
+      hardenPostgresql: true,
+      hardenElasticsearch: true,
+      hardenChronyd: false,
+      blockPorts: '',
+      ...(saved.config || {})
+    })
+    logs.value = Array.isArray(saved.logs) ? saved.logs : []
+    results.value = Array.isArray(saved.results) ? saved.results : []
+    isRunning.value = false
+  }
+})
 </script>
 
 <style scoped>

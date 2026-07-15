@@ -509,3 +509,58 @@ frontend/src/config/
 **修复**:
 - 使用阿里云 npm 镜像 (registry.npmmirror.com) 避免网络问题
 
+### 2026-04-11: 系统初始化功能修复
+
+**问题**:
+- 系统初始化页面加载时出现 500 内部服务器错误
+- `/api/v1/system/system-init/configure-ssh` 接口无法正常响应
+
+**修复**:
+- 删除了 `SystemInit.vue` 中未使用且引用未定义变量的 `getValidHostnames` 函数
+- 该函数引用了未定义的 `hostnamesText` 变量，导致页面加载时出现错误
+
+**关键文件**:
+- `frontend/src/apps/system/SystemInit.vue` - 删除了无用的函数
+
+**验证结果**:
+- 系统初始化页面现在可以正常加载和显示
+- 所有功能按钮（全部初始化、修改主机名、时钟同步、SSH免密、防火墙、安全加固）都可以正常响应
+- 页面状态可以正常保存和恢复
+- SSH 免密配置接口现在可以正常工作
+
+### 2026-04-11: CosBench 配置文件命名优化
+
+**功能实现**:
+- 优化了 CosBench 配置文件的命名规则
+- 文件名格式：S3-4k-write-1driver.xml
+- 格式说明：S3-<对象大小>-<操作类型>-<driver数量>driver.xml
+- 支持 read、write 和 mixed 三种操作类型
+- 支持 KB 和 MB 两种大小单位
+
+**修改内容**:
+1. 前端代码中修改了 `downloadCurrent` 函数，生成符合格式的文件名
+2. 后端代码中修改了 `generate_s3_workload_xml` 函数，设置符合格式的 workload name
+3. 后端代码中修改了 `generate_mixed_workload_xml` 函数，使用相同的命名格式
+
+**关键文件**:
+- `frontend/src/apps/performance/CosBenchGenerator.vue` - 修改了文件名生成逻辑
+- `backend/apps/performance/CosBenchGenerator/views.py` - 修改了 workload name 生成逻辑
+
+**测试结果**:
+- 生成的 XML 文件的 workload name 符合要求的格式
+- 下载的文件名符合要求的格式
+
+### 2026-04-11: 项目版本号更新
+
+**功能实现**:
+- 统一更新了项目的版本号
+- 前端和后端代码中的版本号保持一致
+
+**修改内容**:
+1. 前端代码中修改了 package.json 文件中的版本号，从 1.0 更新到 1.1
+2. 后端代码中添加了 VERSION 变量，值为 '1.1'
+
+**关键文件**:
+- `frontend/package.json` - 更新了项目版本号
+- `backend/tools/settings.py` - 添加了版本号定义
+

@@ -1,12 +1,12 @@
 {
   "name": "tools-frontend",
-  "version": "1.0.0",
+  "version": "1.9",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 6500",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "node ./node_modules/vite/dist/node/cli.js --port 6500",
+    "build": "node ./node_modules/vite/dist/node/cli.js build",
+    "preview": "node ./node_modules/vite/dist/node/cli.js preview"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

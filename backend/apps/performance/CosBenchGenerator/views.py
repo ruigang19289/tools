@@ -64,18 +64,26 @@ def generate_s3_workload_xml(
     
     if operation_type not in ["read", "write"]:
         operation_type = "read"
+    
+    # 生成符合格式的 workload name：S3-4k-write-1driver
+    size_str = f"{object_size_mb}{size_unit.lower().replace('mb', 'm').replace('kb', 'k')}"
+    type_str = operation_type
+    driver_str = f"{num_drivers}driver"
+    generated_workload_name = f"S3-{size_str}-{type_str}-{driver_str}"
 
     xml_content = f'''<?xml version="1.0" encoding="UTF-8" ?>
-<workload name="{workload_name}" description="{workload_description}">
+<workload name="{generated_workload_name}" description="{workload_description}">
   <workflow>
     <workstage name="{operation_type}">
 '''
 
     for driver_id in range(1, num_drivers + 1):
         endpoint = endpoints[(driver_id - 1) % len(endpoints)] if endpoints else "http://localhost:7480"
+        object_start = (driver_id - 1) * total_ops + 1
+        object_end = driver_id * total_ops
         xml_content += f'''
       <work name="w{driver_id}" workers="{workers_per_driver}" totalOps="{total_ops}" driver="driver{driver_id}">
-        <operation type="{operation_type}" ratio="100" config="cprefix={bucket_prefix};oprefix={object_prefix}{driver_id:04d}-;containers=c({driver_id});objects=s(1,{total_ops});sizes=c({object_size_mb}){size_unit};" />
+        <operation type="{operation_type}" ratio="100" config="cprefix={bucket_prefix};oprefix={object_prefix}{driver_id:04d}-;containers=c({driver_id});objects=s({object_start},{object_end});sizes=c({object_size_mb}){size_unit};" />
         <storage type="s3" config="path_style_access={'true' if path_style_access else 'false'};accesskey={access_key};secretkey={secret_key};endpoint={endpoint};server_side_encryption={'true' if server_side_encryption else 'false'};" />
       </work>
 '''
@@ -94,20 +102,33 @@ def generate_mixed_workload_xml(
         path_style_access=True, server_side_encryption=False
 ):
     """生成读写混合的 S3 基准测试 XML 配置文件"""
+    # 生成符合格式的 workload name：S3-4k-mixed-1driver
+    size_str = f"{object_size_mb}{size_unit.lower().replace('mb', 'm').replace('kb', 'k')}"
+    type_str = "mixed"
+    driver_str = f"{num_drivers}driver"
+    generated_workload_name = f"S3-{size_str}-{type_str}-{driver_str}"
+
     xml_content = f'''<?xml version="1.0" encoding="UTF-8" ?>
-<workload name="{workload_name}" description="{workload_description}">
+<workload name="{generated_workload_name}" description="{workload_description}">
   <workflow>
     <workstage name="mixed">
 '''
 
+    read_total_ops = max(total_ops * read_ratio // 100, 1) if read_ratio > 0 else 0
+    write_total_ops = max(total_ops * write_ratio // 100, 1) if write_ratio > 0 else 0
+
     for driver_id in range(1, num_drivers + 1):
         endpoint = endpoints[(driver_id - 1) % len(endpoints)] if endpoints else "http://localhost:7480"
+        read_start = (driver_id - 1) * read_total_ops + 1 if read_total_ops else 0
+        read_end = driver_id * read_total_ops if read_total_ops else 0
+        write_start = (driver_id - 1) * write_total_ops + 1 if write_total_ops else 0
+        write_end = driver_id * write_total_ops if write_total_ops else 0
         read_oprefix = f"{object_prefix}{driver_id:04d}-"
-        write_oprefix = f"{object_prefix}{driver_id + 1:04d}-"
+        write_oprefix = f"{object_prefix}{1000 + driver_id:04d}-"
         xml_content += f'''
       <work name="w{driver_id}" workers="{workers_per_driver}" totalOps="{total_ops}" driver="driver{driver_id}">
-        <operation type="read" ratio="{read_ratio}" config="cprefix={bucket_prefix};oprefix={read_oprefix};containers=c({driver_id});objects=s(1,{total_ops});sizes=c({object_size_mb}){size_unit};" />
-        <operation type="write" ratio="{write_ratio}" config="cprefix={bucket_prefix};oprefix={write_oprefix};containers=c({driver_id});objects=s(1,{total_ops});sizes=c({object_size_mb}){size_unit};" />
+        <operation type="read" ratio="{read_ratio}" config="cprefix={bucket_prefix};oprefix={read_oprefix};containers=c({driver_id});objects=s({read_start},{read_end});sizes=c({object_size_mb}){size_unit};" />
+        <operation type="write" ratio="{write_ratio}" config="cprefix={bucket_prefix};oprefix={write_oprefix};containers=c({driver_id});objects=s({write_start},{write_end});sizes=c({object_size_mb}){size_unit};" />
         <storage type="s3" config="path_style_access={'true' if path_style_access else 'false'};accesskey={access_key};secretkey={secret_key};endpoint={endpoint};server_side_encryption={'true' if server_side_encryption else 'false'};" />
       </work>
 '''

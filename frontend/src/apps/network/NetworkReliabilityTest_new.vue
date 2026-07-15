@@ -13,13 +13,13 @@
           <h2 class="section-title">主机配置</h2>
 
           <div class="form-group">
-            <label>远程主机 (每行一个):</label>
+            <label>主机列表 (每行一个IP或范围):</label>
             <textarea
               v-model="config.hostsText"
-              rows="3"
+              rows="4"
               placeholder="192.168.1.1
 192.168.1.2
-192.168.1.3"
+192.168.1.10-20"
             ></textarea>
           </div>
 
@@ -53,6 +53,26 @@
             <span class="badge error" v-else>
               ❌ 连接失败
             </span>
+          </div>
+
+          <!-- 已验证主机列表 -->
+          <div class="host-list-section" v-if="validatedHosts.length > 0">
+            <h3 class="host-list-title">已验证主机 ({{ validatedHosts.length }})</h3>
+            <div class="host-list">
+              <div
+                v-for="host in validatedHosts"
+                :key="host.ip"
+                :class="['host-item', { selected: selectedHosts.includes(host.ip) }]"
+                @click="toggleHost(host.ip)"
+              >
+                <span class="host-ip">{{ host.ip }}</span>
+                <span :class="['host-status', host.status]">{{ host.status === 'success' ? '✓' : '✗' }}</span>
+              </div>
+            </div>
+            <div class="host-list-actions">
+              <button class="btn btn-secondary btn-compact" @click="selectAll">全选</button>
+              <button class="btn btn-secondary btn-compact" @click="clearSelection">清空</button>
+            </div>
           </div>
         </div>
 
@@ -228,6 +248,7 @@
 import { ref, reactive, computed, nextTick } from 'vue'
 import api from '@/api'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { usePageStatePersistence } from '@/apps/common/usePageStatePersistence'
 
 const API_BASE = `/network/iperf3`
 
@@ -250,6 +271,8 @@ const config = reactive({
 const loading = ref(false)
 const validating = ref(false)
 const validationResults = ref([])
+const validatedHosts = ref([])
+const selectedHosts = ref([])
 const taskId = ref('')
 const testLog = ref([])
 const testSummary = ref('')
@@ -261,15 +284,48 @@ let currentWebSocket = null
 const notification = reactive({ show: false, message: '', type: 'info' })
 
 // Computed
+const parseIPRange = (input) => {
+  const ips = []
+  const lines = input.split('\n').map(l => l.trim()).filter(l => l)
+
+  for (const line of lines) {
+    if (line.includes('/')) {
+      const match = line.match(/^(\d+\.\d+\.\d+\.)(\d+)\/(\d+)$/)
+      if (match) {
+        const prefix = match[1]
+        const base = parseInt(match[2])
+        const bits = parseInt(match[3])
+        const count = Math.pow(2, 32 - bits)
+        for (let i = 0; i < count; i++) {
+          ips.push(prefix + (base + i))
+        }
+      }
+      continue
+    }
+
+    const rangeMatch = line.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/)
+    if (rangeMatch) {
+      const prefix = rangeMatch[1]
+      const start = parseInt(rangeMatch[2])
+      const end = parseInt(rangeMatch[3])
+      for (let i = start; i <= end; i++) {
+        ips.push(prefix + i)
+      }
+      continue
+    }
+
+    ips.push(line)
+  }
+
+  return ips
+}
+
 const hosts = computed(() => {
-  return config.hostsText
-    .split('\n')
-    .map(h => h.trim())
-    .filter(h => h.length > 0)
+  return parseIPRange(config.hostsText)
 })
 
 const canStartTest = computed(() => {
-  return hosts.value.length >= 2 && config.username && config.password && config.testNetwork.trim() !== ''
+  return selectedHosts.value.length >= 2 && config.username && config.password && config.testNetwork.trim() !== ''
 })
 
 const canValidate = computed(() => {
@@ -344,13 +400,16 @@ const validateHosts = async () => {
   }
 
   validating.value = true
+  validatedHosts.value = []
+  selectedHosts.value = []
   addLog('[验证] 开始验证主机连接...')
 
   try {
     const response = await api.post(`${API_BASE}/validate`, {
       hosts: hosts.value,
       username: config.username,
-      password: config.password
+      password: config.password,
+      port: config.port
     })
 
     if (response.status === 'success') {
@@ -358,8 +417,11 @@ const validateHosts = async () => {
 
       response.results.forEach(result => {
         const icon = result.status === 'success' ? '✅' : '❌'
+        validatedHosts.value.push({ ip: result.host, status: result.status })
         addLog(`[验证] ${icon} ${result.host}: ${result.message}`)
       })
+
+      selectAll()
 
       const successCount = response.results.filter(r => r.status === 'success').length
       if (successCount === hosts.value.length) {
@@ -374,6 +436,23 @@ const validateHosts = async () => {
   } finally {
     validating.value = false
   }
+}
+
+const toggleHost = (ip) => {
+  const idx = selectedHosts.value.indexOf(ip)
+  if (idx > -1) {
+    selectedHosts.value.splice(idx, 1)
+  } else {
+    selectedHosts.value.push(ip)
+  }
+}
+
+const selectAll = () => {
+  selectedHosts.value = validatedHosts.value.filter(h => h.status === 'success').map(h => h.ip)
+}
+
+const clearSelection = () => {
+  selectedHosts.value = []
 }
 
 const startTest = async () => {
@@ -391,7 +470,7 @@ const startTest = async () => {
 
   addLog('[测试] 启动带宽测试...')
   addLog(`[配置] 测试模式: ${config.testMode}`)
-  addLog(`[配置] 主机数量: ${hosts.value.length}`)
+  addLog(`[配置] 主机数量: ${selectedHosts.value.length}`)
   addLog(`[配置] 测试网段: ${config.testNetwork || '使用 SSH 地址'}`)
   addLog(`[配置] 端口范围: ${config.portMin} - ${config.portMin + config.cnum - 1}`)
   addLog(`[配置] 并发数: ${config.cnum}`)
@@ -409,7 +488,7 @@ const startTest = async () => {
     // 发送测试配置
     ws.send(JSON.stringify({
       action: 'start_test',
-      hosts: hosts.value,
+      hosts: selectedHosts.value,
       test_network: config.testNetwork,
       test_mode: config.testMode,
       port_min: config.portMin,
@@ -418,7 +497,8 @@ const startTest = async () => {
       core_min: config.coreMin,
       use_cpu_binding: config.useCpuBinding,
       username: config.username,
-      password: config.password
+      password: config.password,
+      port: config.port
     }))
   }
 
@@ -555,6 +635,45 @@ const downloadResults = () => {
   URL.revokeObjectURL(url)
   showNotification('测试结果已下载', 'success')
 }
+
+usePageStatePersistence('network_bandwidth_test_page_state', () => ({
+  config: { ...config },
+  validationResults: validationResults.value,
+  validatedHosts: validatedHosts.value,
+  selectedHosts: selectedHosts.value,
+  taskId: taskId.value,
+  testLog: testLog.value,
+  testSummary: testSummary.value,
+  testResults: testResults.value,
+  showDetailedLog: showDetailedLog.value
+}), {
+  hydrate: (saved) => {
+    Object.assign(config, {
+      hostsText: '',
+      port: 22,
+      username: 'root',
+      password: '',
+      testNetwork: '',
+      testMode: 'one2one',
+      portMin: 15000,
+      cnum: 2,
+      duration: 10,
+      coreMin: 0,
+      useCpuBinding: false,
+      ...(saved.config || {})
+    })
+    validationResults.value = Array.isArray(saved.validationResults) ? saved.validationResults : []
+    validatedHosts.value = Array.isArray(saved.validatedHosts) ? saved.validatedHosts : []
+    selectedHosts.value = Array.isArray(saved.selectedHosts) ? saved.selectedHosts : []
+    taskId.value = saved.taskId || ''
+    testLog.value = Array.isArray(saved.testLog) ? saved.testLog : []
+    testSummary.value = saved.testSummary || ''
+    testResults.value = saved.testResults || null
+    showDetailedLog.value = Boolean(saved.showDetailedLog)
+    loading.value = false
+    validating.value = false
+  }
+})
 </script>
 
 <style scoped>
@@ -699,6 +818,19 @@ const downloadResults = () => {
 .checkbox-label span {
   user-select: none;
 }
+
+.host-list-section { margin-top: 12px; padding: 10px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0; }
+.host-list-title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 6px; }
+.host-list { max-height: 140px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; background: white; margin-bottom: 6px; }
+.host-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.host-item:last-child { border-bottom: none; }
+.host-item:hover { background: #f0f0f0; }
+.host-item.selected { background: #e8f5e9; }
+.host-ip { font-family: monospace; font-size: 13px; }
+.host-status { font-weight: 600; font-size: 14px; }
+.host-status.success { color: #4CAF50; }
+.host-status.error { color: #f44336; }
+.host-list-actions { display: flex; gap: 8px; }
 
 .validation-summary {
   margin-top: 10px;

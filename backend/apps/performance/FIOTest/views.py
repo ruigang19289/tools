@@ -14,61 +14,21 @@ logger = logging.getLogger(__name__)
 
 # 全局存储活动测试
 active_tests = {}
-test_results = {}
 active_tests_lock = threading.Lock()
 
 # 存储 consumer 引用
 fio_consumers = {}
 
 
-def ssh_connect(host, username, password, timeout=10):
+def ssh_connect(host, username, password, port=22, timeout=10):
     """SSH 连接"""
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        ssh.connect(host, username=username, password=password, timeout=timeout)
+        ssh.connect(host, port=port, username=username, password=password, timeout=timeout)
         return ssh, None
     except Exception as e:
         return None, str(e)
-
-
-def parse_fio_output(output):
-    """解析 FIO 输出"""
-    stats = {
-        'iops': 0,
-        'bw': 0,
-        'latency': 0,
-        'clat': 0,
-        'clat_percentile': {},
-    }
-
-    try:
-        # 提取 IOPS
-        iops_match = output.get('iops', 0)
-        if isinstance(iops_match, str):
-            import re
-            iops_match = re.search(r'iops=\s*([\d.]+)', output)
-            if iops_match:
-                stats['iops'] = float(iops_match.group(1))
-
-        # 提取带宽
-        bw_match = output.get('bw', 0)
-        if isinstance(bw_match, str):
-            import re
-            bw_match = re.search(r'bw=\s*([\d.]+)([KMG])iB/s', output)
-            if bw_match:
-                val = float(bw_match.group(1))
-                unit = bw_match.group(2)
-                if unit == 'K':
-                    stats['bw'] = val / 1024
-                elif unit == 'M':
-                    stats['bw'] = val
-                elif unit == 'G':
-                    stats['bw'] = val * 1024
-    except Exception:
-        pass
-
-    return stats
 
 
 @csrf_exempt
@@ -79,13 +39,13 @@ def validate_hosts(request):
     hosts = data.get('hosts', [])
     username = data.get('username', 'root')
     password = data.get('password', '')
+    port = int(data.get('port', 22) or 22)
 
     results = []
 
     for host in hosts:
-        ssh, error = ssh_connect(host, username, password)
+        ssh, error = ssh_connect(host, username, password, port=port)
         if ssh:
-            # 检查 FIO 是否安装
             stdin, stdout, stderr = ssh.exec_command("which fio")
             has_fio = stdout.read().decode().strip() != ''
 
@@ -104,27 +64,6 @@ def validate_hosts(request):
             })
 
     return JsonResponse({'status': 'success', 'results': results})
-
-
-def generate_fio_config(params):
-    """生成 FIO 配置文件"""
-    config = f"""[global]
-ioengine=libaio
-direct=1
-rw={params.get('rw', 'randrw')}
-bs={params.get('bs', '4k')}
-size={params.get('size', '1G')}
-iodepth={params.get('iodepth', 64)}
-numjobs={params.get('numjobs', 4)}
-time_based=1
-runtime={params.get('runtime', 60)}
-group_reporting=1
-"""
-
-    if params.get('rw') == 'randrw':
-        config += f"rwmixread={params.get('rwmixread', 70)}\n"
-
-    return config
 
 
 def _send_to_consumer(task_id, message):
@@ -146,22 +85,34 @@ def _send_to_consumer(task_id, message):
             logger.error(f"Send to consumer error: {e}")
 
 
-def run_fio_test(task_id, host, username, password, params):
+def run_fio_test(task_id, host, username, password, port, params):
     """运行 FIO 测试（后台线程）"""
     _send_to_consumer(task_id, {
         'type': 'output',
         'data': f'[{host}] 正在连接...\n'
     })
 
-    ssh, error = ssh_connect(host, username, password)
+    ssh, error = ssh_connect(host, username, password, port=port)
     if not ssh:
         with active_tests_lock:
-            active_tests[task_id]['status'] = 'error'
-            active_tests[task_id]['error'] = error
+            if task_id in active_tests:
+                active_tests[task_id]['failed_hosts'].append({'host': host, 'error': error})
+                active_tests[task_id]['completed_hosts'] += 1
+                total_hosts = len(active_tests[task_id]['hosts'])
+                finished = active_tests[task_id]['completed_hosts'] >= total_hosts
+                active_tests[task_id]['status'] = 'error' if finished else 'partial'
+                active_tests[task_id]['error'] = error
         _send_to_consumer(task_id, {
             'type': 'output',
-            'data': f'[{host}] 连接失败: {error}\n'
+            'data': f'[{host}] 连接失败: {error}\n',
+            'host': host
         })
+        if finished:
+            _send_to_consumer(task_id, {
+                'type': 'error',
+                'error': error,
+                'host': host
+            })
         return
 
     with active_tests_lock:
@@ -172,11 +123,11 @@ def run_fio_test(task_id, host, username, password, params):
         'data': f'[{host}] 连接成功，开始测试...\n'
     })
 
-    # 生成 FIO 命令
     ioengine = params.get('ioengine', 'libaio')
     filename = params.get('filename', '/dev/sdb')
     pool = params.get('pool', 'pool-rbdtest1')
     rw = params.get('rw', 'randread')
+    rwmixread = params.get('rwmixread', 70)
     bs = params.get('bs', '4k')
     iodepth = params.get('iodepth', 64)
     numjobs = params.get('numjobs', 4)
@@ -184,15 +135,16 @@ def run_fio_test(task_id, host, username, password, params):
     size = params.get('size', '100G')
     cpus_allowed = params.get('cpus_allowed', '')
 
-    # 构建 FIO 命令
     if ioengine == 'rbd':
         cmd = f'fio --direct=1 --ioengine=rbd --pool={pool} --rbdname={filename}'
     else:
         cmd = f'fio --direct=1 --filename={filename} --ioengine=libaio'
 
     cmd += f' --iodepth={iodepth} --numjobs={numjobs} --rw={rw} --bs={bs}'
+    if rw == 'randrw':
+        cmd += f' --rwmixread={rwmixread}'
     cmd += f' --group_reporting --name=mytest --size={size}'
-    cmd += f' --status-interval=1'  # 每秒输出一次状态
+    cmd += ' --status-interval=1'
 
     if runtime:
         cmd += f' --runtime={runtime} --time_based'
@@ -200,7 +152,6 @@ def run_fio_test(task_id, host, username, password, params):
     if cpus_allowed and cpus_allowed.strip():
         cmd += f' --cpus_allowed={cpus_allowed} --cpus_allowed_policy=split'
 
-    # 输出命令
     _send_to_consumer(task_id, {
         'type': 'output',
         'data': f'[{host}] 执行命令: {cmd}\n'
@@ -212,9 +163,12 @@ def run_fio_test(task_id, host, username, password, params):
         'bw_mb': 0,
         'latency_us': 0,
         'cpu_util': 0,
+        'read_iops': 0,
+        'write_iops': 0,
+        'read_bw_mb': 0,
+        'write_bw_mb': 0,
     }
 
-    # 启动 FIO
     channel = ssh.get_transport().open_session()
     channel.settimeout(0.0)
     channel.exec_command(cmd)
@@ -233,49 +187,60 @@ def run_fio_test(task_id, host, username, password, params):
                 if output:
                     output_lines.append(output)
 
-                    # 实时推送输出到前端（包含主机信息）
                     _send_to_consumer(task_id, {
                         'type': 'output',
                         'data': output,
                         'host': host
                     })
 
-                    # 解析实时输出
                     try:
                         import re
 
-                        # 打印原始输出用于调试
-                        # if 'IOPS=' in output or 'BW=' in output or 'lat' in output:
-                        #     print(f"[DEBUG] FIO output line: {output[:200]}")
-
-                        # 提取 IOPS (支持 k 后缀)
-                        iops_match = re.search(r'IOPS=([\d.]+)([kKmM]?)', output)
-                        if iops_match:
-                            val = float(iops_match.group(1))
-                            unit = iops_match.group(2).lower()
+                        def parse_iops(value, unit):
+                            unit = unit.lower()
                             if unit == 'k':
-                                test_stats['iops'] = val * 1000
-                            elif unit == 'm':
-                                test_stats['iops'] = val * 1000000
-                            else:
-                                test_stats['iops'] = val
-                            # print(f"[DEBUG] Parsed IOPS: {test_stats['iops']}")
+                                return value * 1000
+                            if unit == 'm':
+                                return value * 1000000
+                            return value
 
-                        # 提取带宽 (BW=93.9MiB/s)
-                        bw_match = re.search(r'BW=([\d.]+)([KMG])iB/s', output)
-                        if bw_match:
-                            val = float(bw_match.group(1))
-                            unit = bw_match.group(2)
+                        def parse_bw_mb(value, unit):
                             if unit == 'M':
-                                test_stats['bw_mb'] = val
-                            elif unit == 'K':
-                                test_stats['bw_mb'] = val / 1024
-                            elif unit == 'G':
-                                test_stats['bw_mb'] = val * 1024
-                            # print(f"[DEBUG] Parsed BW: {test_stats['bw_mb']} MB/s")
+                                return value
+                            if unit == 'K':
+                                return value / 1024
+                            if unit == 'G':
+                                return value * 1024
+                            return value
 
-                        # 提取延迟 (只匹配 lat，不匹配 slat/clat)
-                        # lat (usec): min=21, max=43755, avg=294.39, stdev=810.08
+                        section_matches = re.findall(r'(read|write):.*?IOPS=([\d.]+)([kKmM]?).*?BW=([\d.]+)([KMG])iB/s', output, re.S)
+                        if section_matches:
+                            for section, iops_val, iops_unit, bw_val, bw_unit in section_matches:
+                                parsed_iops = parse_iops(float(iops_val), iops_unit)
+                                parsed_bw = parse_bw_mb(float(bw_val), bw_unit)
+                                if section == 'read':
+                                    test_stats['read_iops'] = parsed_iops
+                                    test_stats['read_bw_mb'] = parsed_bw
+                                elif section == 'write':
+                                    test_stats['write_iops'] = parsed_iops
+                                    test_stats['write_bw_mb'] = parsed_bw
+                            test_stats['iops'] = test_stats['read_iops'] + test_stats['write_iops']
+                            test_stats['bw_mb'] = test_stats['read_bw_mb'] + test_stats['write_bw_mb']
+                        else:
+                            iops_match = re.search(r'IOPS=([\d.]+)([kKmM]?)', output)
+                            if iops_match:
+                                test_stats['iops'] = parse_iops(float(iops_match.group(1)), iops_match.group(2))
+
+                            bw_match = re.search(r'BW=([\d.]+)([KMG])iB/s', output)
+                            if bw_match:
+                                test_stats['bw_mb'] = parse_bw_mb(float(bw_match.group(1)), bw_match.group(2))
+
+                            if rw == 'randrw':
+                                test_stats['read_iops'] = test_stats['iops']
+                                test_stats['read_bw_mb'] = test_stats['bw_mb']
+                                test_stats['write_iops'] = 0
+                                test_stats['write_bw_mb'] = 0
+
                         lat_match = re.search(r'\s+lat\s*\((usec|msec)\):.*?avg=([\d.]+)', output)
                         if lat_match:
                             unit = lat_match.group(1)
@@ -284,11 +249,8 @@ def run_fio_test(task_id, host, username, password, params):
                                 test_stats['latency_us'] = val
                             elif unit == 'msec':
                                 test_stats['latency_us'] = val * 1000
-                            # print(f"[DEBUG] Parsed latency: {test_stats['latency_us']} us")
 
-                            # 只在解析到延迟行时才发送统计数据（确保数据完整）
                             if test_stats['iops'] > 0 or test_stats['bw_mb'] > 0:
-                                # print(f"[DEBUG] Sending complete stats: {test_stats}")
                                 with active_tests_lock:
                                     active_tests[task_id]['stats'] = test_stats.copy()
 
@@ -298,10 +260,8 @@ def run_fio_test(task_id, host, username, password, params):
                                     'host': host
                                 })
                     except Exception as e:
-                        print(f"[ERROR] Failed to parse FIO output: {e}")
+                        logger.error(f"Failed to parse FIO output: {e}")
 
-
-            # 检查是否完成
             if channel.exit_status_ready():
                 break
 
@@ -315,25 +275,37 @@ def run_fio_test(task_id, host, username, password, params):
             'data': f'[{host}] 错误: {str(e)}\n'
         })
 
-    # 清理
     channel.close()
     ssh.close()
 
+    final_status = 'completed'
     with active_tests_lock:
-        active_tests[task_id]['status'] = 'completed'
-        active_tests[task_id]['output'] = output_lines
-        active_tests[task_id]['stats'] = test_stats
-        active_tests[task_id]['completed_at'] = time.time()
+        if task_id in active_tests:
+            active_tests[task_id]['completed_hosts'] += 1
+            active_tests[task_id]['output'] = output_lines
+            active_tests[task_id]['stats'] = test_stats
+            active_tests[task_id]['completed_at'] = time.time()
+            total_hosts = len(active_tests[task_id]['hosts'])
+            if active_tests[task_id].get('stop'):
+                final_status = 'stopped'
+            elif active_tests[task_id]['completed_hosts'] < total_hosts:
+                final_status = 'running'
+            elif active_tests[task_id]['failed_hosts']:
+                final_status = 'partial'
+            active_tests[task_id]['status'] = final_status
 
     _send_to_consumer(task_id, {
         'type': 'output',
-        'data': f'[{host}] 测试完成\n'
+        'data': f'[{host}] 测试完成\n',
+        'host': host
     })
 
-    _send_to_consumer(task_id, {
-        'type': 'completed',
-        'stats': test_stats
-    })
+    if final_status in ('completed', 'partial', 'stopped'):
+        _send_to_consumer(task_id, {
+            'type': 'completed',
+            'stats': test_stats,
+            'status': final_status
+        })
 
 
 @csrf_exempt
@@ -344,6 +316,7 @@ def start_test(request):
     hosts = data.get('hosts', [])
     username = data.get('username', 'root')
     password = data.get('password', '')
+    port = int(data.get('port', 22) or 22)
     test_params = data.get('params', {})
 
     if not hosts:
@@ -351,7 +324,6 @@ def start_test(request):
 
     task_id = str(uuid.uuid4())
 
-    # 创建测试任务
     active_tests[task_id] = {
         'id': task_id,
         'hosts': hosts,
@@ -360,16 +332,17 @@ def start_test(request):
         'stats': {},
         'stop': False,
         'start_time': time.time(),
+        'completed_hosts': 0,
+        'failed_hosts': [],
     }
 
-    # 为每个主机启动测试线程
     for i, host in enumerate(hosts):
         thread_params = test_params.copy()
-        thread_params['size'] = test_params.get('size', f'{1 << (30 - i)}')  # 差异化文件大小
+        thread_params['size'] = test_params.get('size', f'{1 << (30 - i)}')
 
         thread = threading.Thread(
             target=run_fio_test,
-            args=(task_id, host, username, password, thread_params)
+            args=(task_id, host, username, password, port, thread_params)
         )
         thread.daemon = True
         thread.start()
@@ -411,6 +384,7 @@ def get_output(request):
         'status': test['status'],
         'output': test.get('output', []),
         'stats': test.get('stats', {}),
+        'failed_hosts': test.get('failed_hosts', []),
         'elapsed': time.time() - test.get('start_time', time.time()),
     })
 
@@ -429,6 +403,7 @@ def get_results(request):
     return JsonResponse({
         'status': test['status'],
         'stats': test.get('stats', {}),
+        'failed_hosts': test.get('failed_hosts', []),
         'elapsed': time.time() - test.get('start_time', time.time()),
     })
 
@@ -451,7 +426,6 @@ class FIOTestConsumer(AsyncWebsocketConsumer):
         logger.info(f"FIO WebSocket disconnected: {self.client_id}")
         fio_consumers.pop(self.client_id, None)
 
-        # 清理任务中的 consumer 引用
         if self.task_id:
             with active_tests_lock:
                 if self.task_id in active_tests:
@@ -474,7 +448,6 @@ class FIOTestConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({'type': 'error', 'error': str(e)}))
 
     async def handle_join(self, data):
-        """加入测试任务，接收实时输出"""
         task_id = data.get('task_id')
 
         if not task_id:
@@ -484,14 +457,12 @@ class FIOTestConsumer(AsyncWebsocketConsumer):
             }))
             return
 
-        # 检查任务是否存在
         with active_tests_lock:
             if task_id in active_tests:
                 self.task_id = task_id
                 active_tests[task_id]['consumer'] = self
                 logger.info(f"WebSocket joined FIO task: {task_id}")
 
-                # 发送确认
                 await self.send(text_data=json.dumps({
                     'type': 'joined',
                     'task_id': task_id
@@ -503,7 +474,6 @@ class FIOTestConsumer(AsyncWebsocketConsumer):
                 }))
 
     async def handle_stop(self, data):
-        """停止测试"""
         task_id = data.get('task_id')
 
         if task_id:
@@ -516,4 +486,3 @@ class FIOTestConsumer(AsyncWebsocketConsumer):
                 'type': 'stopped',
                 'task_id': task_id
             }))
-

@@ -1,61 +1,74 @@
-#!/bin/bash
+#!/bin/sh
 # Tools 项目 Docker 镜像打包脚本
-# =====================
 
-set -e
+set -eu
 
-# 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# 配置
-IMAGE_NAME="tools-platform"
+IMAGE_NAME="tools-app"
 IMAGE_TAG="${1:-latest}"
 REGISTRY="${2:-}"
-
-# 完整镜像名
+OUTPUT_TAR="${3:-}"
+CONTAINER_NAME="sds-tools"
 FULL_IMAGE_NAME="${REGISTRY}${IMAGE_NAME}:${IMAGE_TAG}"
+ALPINE_TAR="/mnt/alpine.tar"
+TOOLS_PLATFORM_TAR="/root/tools-app.tar"
 
-echo -e "${YELLOW}================================${NC}"
-echo -e "${YELLOW}开始打包 Docker 镜像${NC}"
-echo -e "${YELLOW}================================${NC}"
-echo "- 镜像名称: ${FULL_IMAGE_NAME}"
-echo ""
+printf "%b\n" "${YELLOW}================================${NC}"
+printf "%b\n" "${YELLOW}开始打包 Docker 镜像${NC}"
+printf "%b\n" "${YELLOW}================================${NC}"
+printf -- "- 镜像名称: %s\n" "${FULL_IMAGE_NAME}"
+if [ -n "${OUTPUT_TAR}" ]; then
+    printf -- "- 导出文件: %s\n" "${OUTPUT_TAR}"
+fi
+printf "\n"
 
-# 检查 Dockerfile 是否存在
 if [ ! -f "Dockerfile" ]; then
-    echo -e "${RED}错误: Dockerfile 不存在${NC}"
+    printf "%b\n" "${RED}错误: Dockerfile 不存在${NC}"
     exit 1
 fi
 
-# 停止运行中的容器（如果有）
-echo -e "${GREEN}检查运行中的容器...${NC}"
-CONTAINER_ID=$(docker ps -a --filter "name=${IMAGE_NAME}" -q)
-if [ -n "$CONTAINER_ID" ]; then
-    echo "停止已有容器..."
-    docker stop $CONTAINER_ID 2>/dev/null || true
-    docker rm $CONTAINER_ID 2>/dev/null || true
+# 加载基础镜像
+if [ -f "${TOOLS_PLATFORM_TAR}" ]; then
+    printf "%b\n" "${GREEN}加载 tools-platform 基础镜像: ${TOOLS_PLATFORM_TAR}${NC}"
+    docker load -i "${TOOLS_PLATFORM_TAR}"
+elif docker image inspect tools-platform:latest > /dev/null 2>&1; then
+    printf "%b\n" "${GREEN}使用已有的 tools-platform:latest 镜像${NC}"
+else
+    printf "%b\n" "${RED}错误: 基础镜像不存在${NC}"
+    exit 1
+fi
+printf "\n"
+
+printf "%b\n" "${GREEN}开始构建镜像...${NC}"
+docker build -t "${FULL_IMAGE_NAME}" .
+
+if [ -n "${OUTPUT_TAR}" ]; then
+    printf "%b\n" "${GREEN}导出镜像...${NC}"
+    docker save -o "${OUTPUT_TAR}" "${FULL_IMAGE_NAME}"
 fi
 
-# 构建镜像
-echo -e "${GREEN}开始构建镜像 (这可能需要几分钟)...${NC}"
-docker build -t ${FULL_IMAGE_NAME} .
+printf "\n"
+printf "%b\n" "${GREEN}================================${NC}"
+printf "%b\n" "${GREEN}镜像打包完成！${NC}"
+printf "%b\n" "${GREEN}================================${NC}"
+printf "\n"
+printf "镜像信息:\n"
+docker image inspect "${FULL_IMAGE_NAME}" --format 'name={{index .RepoTags 0}} id={{.Id}} size={{.Size}}'
+printf "\n"
+printf "运行容器:\n"
+printf "  docker run -d --name %s -p 6000:6000 -p 6500:6500 %s\n" "${CONTAINER_NAME}" "${FULL_IMAGE_NAME}"
+printf "\n"
+printf "查看日志:\n"
+printf "  docker logs %s\n" "${CONTAINER_NAME}"
+printf "\n"
+printf "停止容器:\n"
+printf "  docker rm -f %s\n" "${CONTAINER_NAME}"
 
-echo ""
-echo -e "${GREEN}================================${NC}"
-echo -e "${GREEN}镜像打包完成！${NC}"
-echo -e "${GREEN}================================${NC}"
-echo ""
-echo "镜像信息:"
-docker images ${FULL_IMAGE_NAME}
-echo ""
-echo "运行容器:"
-echo "  docker run -d -p 6000:6000 -p 6500:6500 --name ${IMAGE_NAME} ${FULL_IMAGE_NAME}"
-echo ""
-echo "查看日志:"
-echo "  docker logs ${IMAGE_NAME}"
-echo ""
-echo "停止容器:"
-echo "  docker stop ${IMAGE_NAME}"
+if [ -n "${OUTPUT_TAR}" ]; then
+    printf "\n导入镜像:\n"
+    printf "  docker load -i %s\n" "${OUTPUT_TAR}"
+fi

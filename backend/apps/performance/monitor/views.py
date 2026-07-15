@@ -2,6 +2,7 @@
 System Monitor Backend - SSH-based system monitoring for remote servers
 """
 import json
+import re
 import uuid
 import threading
 import time
@@ -35,6 +36,7 @@ def connect(request):
         host = data.get('host', '')
         username = data.get('username', '')
         password = data.get('password', '')
+        port = int(data.get('port', 22) or 22)
 
         if not host or not username or not password:
             return JsonResponse({'status': 'error', 'error': 'Missing required parameters'}, status=400)
@@ -51,6 +53,7 @@ def connect(request):
 
             ssh.connect(
                 hostname=host,
+                port=port,
                 username=username,
                 password=password,
                 timeout=10,
@@ -68,6 +71,7 @@ def connect(request):
                     'host': host,
                     'username': username,
                     'password': password,
+                    'port': port,
                     'ssh': ssh,
                     'system_info': system_info,
                     'connected_at': str(__import__('datetime').datetime.now())
@@ -171,6 +175,7 @@ def system_info(request):
                     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                     ssh.connect(
                         hostname=conn['host'],
+                        port=conn.get('port', 22),
                         username=conn['username'],
                         password=conn['password'],
                         timeout=10
@@ -251,7 +256,7 @@ def get_cpu_info(ssh):
         total_usage = 0
         cores_data = []
 
-        for i, line in enumerate(lines):
+        for line in lines:
             if not line.startswith('cpu'):
                 continue
 
@@ -267,15 +272,14 @@ def get_cpu_info(ssh):
             iowait = int(parts[5])
             irq = int(parts[6])
             softirq = int(parts[7])
+            steal = int(parts[8]) if len(parts) > 8 else 0
 
-            total = user + nice + system + idle + iowait + irq + softirq
+            total = user + nice + system + idle + iowait + irq + softirq + steal
             usage = total - idle - iowait
 
             if cpu_id == 'cpu':
-                # Aggregate CPU
                 total_usage = (usage / total * 100) if total > 0 else 0
             else:
-                # Per-core data
                 cores_data.append({
                     'cpu': cpu_id.replace('cpu', ''),
                     'us': (user / total * 100) if total > 0 else 0,
@@ -284,22 +288,13 @@ def get_cpu_info(ssh):
                     'id': (idle / total * 100) if total > 0 else 0,
                     'wa': (iowait / total * 100) if total > 0 else 0,
                     'hi': (irq / total * 100) if total > 0 else 0,
-                    'si': (softirq / total * 100) if total > 0 else 0
+                    'si': (softirq / total * 100) if total > 0 else 0,
+                    'st': (steal / total * 100) if total > 0 else 0,
                 })
 
-        # Group by NUMA node
-        numa_nodes = []
-        if cores_data:
-            # Simple grouping - assume first 4 cores per NUMA node
-            for i in range(0, len(cores_data), 4):
-                node_cores = cores_data[i:i+4]
-                if node_cores:
-                    numa_nodes.append({
-                        'node': len(numa_nodes),
-                        'cpus': node_cores
-                    })
+        cpu_to_node = get_numa_cpu_mapping(ssh)
+        numa_nodes = group_cpus_by_numa(cores_data, cpu_to_node)
 
-        # Get load average
         stdin, stdout, stderr = ssh.exec_command('cat /proc/loadavg')
         load_line = stdout.read().decode().strip()
         load_parts = load_line.split()
@@ -316,8 +311,154 @@ def get_cpu_info(ssh):
             'numa_nodes': numa_nodes
         }
 
-    except Exception as e:
+    except Exception:
         return generate_mock_cpu_info()
+
+
+def get_numa_cpu_mapping(ssh):
+    """Get CPU to NUMA node mapping from sysfs or lscpu."""
+    try:
+        stdin, stdout, stderr = ssh.exec_command(
+            "for node_path in /sys/devices/system/node/node[0-9]*; do "
+            "[ -d \"$node_path\" ] || continue; "
+            "node_id=${node_path##*node}; "
+            "cpulist=$(cat \"$node_path/cpulist\" 2>/dev/null); "
+            "[ -n \"$cpulist\" ] && printf 'node%s:%s\\n' \"$node_id\" \"$cpulist\"; "
+            "done"
+        )
+        mapping_output = stdout.read().decode().strip()
+        cpu_to_node = parse_numa_mapping_output(mapping_output)
+        if cpu_to_node:
+            return cpu_to_node
+
+        stdin, stdout, stderr = ssh.exec_command('LANG=C lscpu -p=cpu,node 2>/dev/null')
+        lscpu_output = stdout.read().decode().strip()
+        cpu_to_node = parse_lscpu_numa_output(lscpu_output)
+        if cpu_to_node:
+            return cpu_to_node
+    except Exception:
+        pass
+
+    return {}
+
+
+def parse_numa_mapping_output(output):
+    cpu_to_node = {}
+    for line in output.splitlines():
+        if ':' not in line:
+            continue
+        node_label, cpu_range = line.split(':', 1)
+        node_match = re.search(r'(\d+)$', node_label.strip())
+        if not node_match:
+            continue
+        node_id = int(node_match.group(1))
+        for cpu_id in expand_cpu_list(cpu_range.strip()):
+            cpu_to_node[str(cpu_id)] = node_id
+    return cpu_to_node
+
+
+def parse_lscpu_numa_output(output):
+    cpu_to_node = {}
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = [part.strip() for part in line.split(',')]
+        if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        cpu_to_node[parts[0]] = int(parts[1])
+    return cpu_to_node
+
+
+def expand_cpu_list(cpu_list):
+    cpus = []
+    for part in cpu_list.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if '-' in part:
+            start, end = part.split('-', 1)
+            if start.isdigit() and end.isdigit():
+                cpus.extend(range(int(start), int(end) + 1))
+        elif part.isdigit():
+            cpus.append(int(part))
+    return cpus
+
+
+def group_cpus_by_numa(cores_data, cpu_to_node):
+    if not cores_data:
+        return []
+
+    if not cpu_to_node:
+        return [{
+            'node': 0,
+            'cpus': sorted(cores_data, key=lambda cpu: int(cpu['cpu']))
+        }]
+
+    grouped = {}
+    for cpu in cores_data:
+        node_id = cpu_to_node.get(str(cpu['cpu']), 0)
+        grouped.setdefault(node_id, []).append(cpu)
+
+    numa_nodes = []
+    for node_id in sorted(grouped):
+        numa_nodes.append({
+            'node': node_id,
+            'cpus': sorted(grouped[node_id], key=lambda cpu: int(cpu['cpu']))
+        })
+    return numa_nodes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def get_disk_info(ssh):
@@ -557,3 +698,5 @@ def generate_mock_network_info():
         'rx_drop': 0,
         'tx_drop': 0
     }
+
+

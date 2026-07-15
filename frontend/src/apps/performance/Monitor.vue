@@ -111,8 +111,9 @@
     <!-- 重连提示对话框 -->
     <ReconnectDialog
       api-endpoint="/api/v1/perf/monitor"
-      storage-key="monitor_connection_history"
+      storage-key="monitor"
       :on-reconnect="handleReconnect"
+      :auto-reconnect="true"
     />
 
     <!-- 通知消息 -->
@@ -128,6 +129,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '@/api'
 import ReconnectDialog from '@/components/ReconnectDialog.vue'
+import { usePageStatePersistence } from '@/apps/common/usePageStatePersistence'
 
 // 状态
 const serverAddress = ref('')
@@ -286,6 +288,51 @@ const connectToServer = async (host, user, pwd, port = 22) => {
   }
 }
 
+// 开始监控
+const startMonitoring = (host) => {
+  // 立即更新一次
+  updateSystemInfo(host)
+
+  // 每1秒更新一次
+  monitoringIntervals.value[host] = setInterval(() => {
+    updateSystemInfo(host)
+  }, 1000)
+}
+
+// 更新系统信息
+const updateSystemInfo = async (host) => {
+  if (!connections.value[host]) return
+
+  try {
+    const response = await api.post('/perf/monitor/system-info', {
+      connection_id: connections.value[host].connection_id
+    })
+
+    console.log('CPU data response:', response)
+
+    if (response.status === 'success') {
+      connections.value[host].data = response.data
+      console.log('CPU info:', response.data?.cpu)
+
+      if (activeHost.value === host) {
+        updateDisplay(host, response.data)
+      }
+    } else if (response.status === 'error') {
+      if (response.error === '连接不存在或已断开') {
+        showNotification(`连接 ${host} 已失效，请重新连接`, 'error')
+        if (monitoringIntervals.value[host]) {
+          clearInterval(monitoringIntervals.value[host])
+          delete monitoringIntervals.value[host]
+        }
+      } else {
+        console.error('API error:', response.error)
+      }
+    }
+  } catch (error) {
+    console.error('获取系统信息错误:', error)
+  }
+}
+
 // 连接到服务器
 const connect = async () => {
   const addressInput = serverAddress.value.trim()
@@ -318,45 +365,6 @@ const connect = async () => {
     password.value = ''
   } finally {
     isConnecting.value = false
-  }
-}
-
-// 开始监控
-const startMonitoring = (host) => {
-  // 立即更新一次
-  updateSystemInfo(host)
-
-  // 每1秒更新一次
-  monitoringIntervals.value[host] = setInterval(() => {
-    updateSystemInfo(host)
-  }, 1000)
-}
-
-// 更新系统信息
-const updateSystemInfo = async (host) => {
-  if (!connections.value[host]) return
-
-  try {
-    const response = await api.post('/perf/monitor/system-info', {
-      connection_id: connections.value[host].connection_id
-    })
-
-    if (response.status === 'success') {
-      connections.value[host].data = response.data
-
-      if (activeHost.value === host) {
-        updateDisplay(host, response.data)
-      }
-    } else if (response.status === 'error' && response.error === '连接不存在或已断开') {
-      // 连接失效
-      showNotification(`连接 ${host} 已失效，请重新连接`, 'error')
-      if (monitoringIntervals.value[host]) {
-        clearInterval(monitoringIntervals.value[host])
-        delete monitoringIntervals.value[host]
-      }
-    }
-  } catch (error) {
-    console.error('获取系统信息错误:', error)
   }
 }
 
@@ -479,7 +487,7 @@ const updateDisplay = (host, data) => {
                   Node ${node.node}
                 </td>
                 <td style="padding: 8px 10px;">
-                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;">
                     ${node.cpus.map(cpu => {
                       const usage = 100 - cpu.id
                       let usageColor = '#4CAF50'
@@ -487,12 +495,12 @@ const updateDisplay = (host, data) => {
                       else if (usage > 60) usageColor = '#FF9800'
 
                       return `
-                        <div style="padding: 5px 8px; background: #fafafa; border-left: 3px solid ${usageColor}; border-radius: 4px; font-size: 11px; line-height: 1.6;">
-                          <div style="font-weight: bold; color: #333; display: flex; align-items: center; gap: 6px;">
-                            <span style="min-width: 80px;">CPU${cpu.cpu}: <span style="color: ${usageColor};">${usage.toFixed(1)}%</span></span>
-                            ${generateCpuBar(usage, 15)}
+                        <div style="min-width: 0; padding: 4px 6px; background: #fafafa; border-left: 3px solid ${usageColor}; border-radius: 4px; font-size: 10px; line-height: 1.5; overflow: hidden;">
+                          <div style="font-weight: bold; color: #333; display: flex; align-items: center; gap: 4px; min-width: 0;">
+                            <span style="min-width: 58px; flex-shrink: 0;">CPU${cpu.cpu}: <span style="color: ${usageColor};">${usage.toFixed(1)}%</span></span>
+                            <span style="min-width: 0; overflow: hidden;">${generateCpuBar(usage, 10)}</span>
                           </div>
-                          <div style="color: #666; font-size: 10px;">
+                          <div style="color: #666; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             us:${cpu.us?.toFixed(1)} sy:${cpu.sy?.toFixed(1)} wa:${cpu.wa?.toFixed(1)} hi:${cpu.hi?.toFixed(1)} si:${cpu.si?.toFixed(1)}
                           </div>
                         </div>
@@ -883,6 +891,34 @@ const promptReconnect = async () => {
     localStorage.removeItem('monitor_connection_history')
   }
 }
+
+usePageStatePersistence('monitor_ui_state', () => ({
+  serverAddress: serverAddress.value,
+  username: username.value,
+  port: port.value,
+  password: password.value,
+  activeHost: activeHost.value,
+  excludeSystemDisk: excludeSystemDisk.value,
+  showSaveDialog: showSaveDialog.value,
+  collectedDataCount: collectedDataCount.value,
+  saveFilename: saveFilename.value,
+  cpuContent: cpuContent.value,
+  diskContent: diskContent.value
+}), {
+  hydrate: (saved) => {
+    serverAddress.value = saved.serverAddress || ''
+    username.value = saved.username || 'root'
+    port.value = saved.port ?? 22
+    password.value = saved.password || ''
+    activeHost.value = saved.activeHost || null
+    excludeSystemDisk.value = saved.excludeSystemDisk ?? true
+    showSaveDialog.value = Boolean(saved.showSaveDialog)
+    collectedDataCount.value = saved.collectedDataCount || 0
+    saveFilename.value = saved.saveFilename || ''
+    cpuContent.value = saved.cpuContent || ''
+    diskContent.value = saved.diskContent || ''
+  }
+})
 
 // 页面加载时初始化
 onMounted(() => {
