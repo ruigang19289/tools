@@ -257,7 +257,7 @@ frontend/src/config/modules.js
 
 ## 最近更新
 
-### 2026-07-15（v1.9 当前版本）
+### 2026-07-15（v2.0 当前版本）
 - 修复网络聚合配置页面：验证主机成功后，Bond 配置区仍显示空态的问题。
 - Bond 页面显示条件改为基于成功验证主机 `successfulHosts` / `hasConnectedHosts`，避免仅依赖 `connectedServers` 导致状态不同步。
 - 统一 Bond 页面目标主机选择逻辑：全选、应用配置、刷新状态、清除 Bond 均复用成功验证主机列表。
