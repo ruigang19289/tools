@@ -14,7 +14,7 @@
         <label for="port">端口:</label>
         <input type="number" id="port" v-model="port" placeholder="22" style="width: 60px;" @keyup.enter="connect">
         <label for="password">密码:</label>
-        <input type="password" id="password" v-model="password" placeholder="******" @keyup.enter="connect">
+        <input type="text" id="password" v-model="password" placeholder="******" @keyup.enter="connect">
         <button id="connect-btn" class="btn-compact" @click="connect" :disabled="isConnecting || !canConnect">
           {{ isConnecting ? '连接中...' : '连接' }}
         </button>
@@ -1431,7 +1431,7 @@ onUnmounted(() => {
   }
 
   .connection-bar input[type="text"],
-  .connection-bar input[type="password"] {
+  .connection-bar input[type="text"] {
     width: 140px;
   }
 }

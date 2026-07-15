@@ -37,7 +37,7 @@
 
           <div class="form-group">
             <label>密码:</label>
-            <input type="password" v-model="password" placeholder="******" @keyup.enter="loadConfig">
+            <input type="text" v-model="password" placeholder="******" @keyup.enter="loadConfig">
           </div>
 
           <button class="btn btn-primary btn-full" @click="loadConfig" :disabled="loading || !isFormValid">

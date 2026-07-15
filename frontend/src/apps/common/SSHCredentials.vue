@@ -35,7 +35,7 @@
     <div class="form-group">
       <label>SSH 密码:</label>
       <input
-        type="password"
+        type="text"
         v-model="connection.password"
         placeholder="密码"
         @input="$emit('update:connection', connection)"

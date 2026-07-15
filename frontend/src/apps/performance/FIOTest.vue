@@ -34,7 +34,7 @@
 
           <div class="form-group">
             <label>密码:</label>
-            <input type="password" v-model="config.password" placeholder="******">
+            <input type="text" v-model="config.password" placeholder="******">
           </div>
 
           <button class="btn btn-primary btn-full" @click="validateHosts" :disabled="!canValidate">

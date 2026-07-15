@@ -36,7 +36,7 @@
 
           <div class="form-group">
             <label>密码:</label>
-            <input type="password" v-model="password" placeholder="******">
+            <input type="text" v-model="password" placeholder="******">
           </div>
         </div>
 

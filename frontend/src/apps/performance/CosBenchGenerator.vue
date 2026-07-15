@@ -73,7 +73,7 @@ http://192.168.1.3:8060"></textarea>
             </div>
             <div class="form-group">
               <label>Secret Key:</label>
-              <input type="password" v-model="s3.secretKey" placeholder="Secret Key">
+              <input type="text" v-model="s3.secretKey" placeholder="Secret Key">
             </div>
             <div></div>
             <div class="form-group">
