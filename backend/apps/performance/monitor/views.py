@@ -542,8 +542,21 @@ def get_disk_info(ssh):
                     'usage': parts[3]
                 }
 
+        # Identify the real root disk instead of assuming the first iostat row is system disk.
+        stdin, stdout, stderr = ssh.exec_command(
+            "root_src=$(findmnt -n -o SOURCE / 2>/dev/null); "
+            "root_dev=$(readlink -f \"$root_src\" 2>/dev/null); "
+            "if [ -b \"$root_dev\" ]; then "
+            "name=$(lsblk -no NAME \"$root_dev\" 2>/dev/null | head -1); "
+            "pk=$(lsblk -no PKNAME \"$root_dev\" 2>/dev/null | head -1); "
+            "if [ -n \"$pk\" ]; then echo \"$pk $name\"; else echo \"$name\"; fi; "
+            "fi"
+        )
+        system_disks = [item for item in stdout.read().decode().strip().split() if item]
+
         return {
             'iostat': disks,
+            'system_disks': system_disks,
             **disk_usage
         }
 

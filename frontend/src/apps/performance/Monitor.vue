@@ -532,10 +532,8 @@ const updateDisplay = (host, data) => {
   if (data.disk?.iostat && data.disk.iostat.length > 0) {
     let disks = data.disk.iostat
     if (excludeSystemDisk.value) {
-      disks = disks.filter(disk => {
-        const device = disk.device.toLowerCase()
-        return !device.match(/^(sda|vda|nvme0n1|hda|xvda)$/)
-      })
+      const systemDisks = new Set((data.disk.system_disks || []).map(device => device.toLowerCase()))
+      disks = disks.filter(disk => !systemDisks.has(disk.device.toLowerCase()))
     }
 
     diskContent.value = `

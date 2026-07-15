@@ -113,8 +113,7 @@ echo "=== Start container ==="
 docker run -d \\
     --name "\$CONTAINER_NAME" \\
     --restart unless-stopped \\
-    -p "\$HOST_HTTP_PORT:\$CONTAINER_HTTP_PORT" \\
-    -p "\$HOST_WEB_PORT:\$CONTAINER_WEB_PORT" \\
+    --network host \\
     "\$IMAGE_NAME:\$IMAGE_TAG"
 
 echo "=== Container status ==="
