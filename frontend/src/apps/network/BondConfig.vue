@@ -534,14 +534,15 @@ const loadConfig = async () => {
         addLog(`${host}: 连接失败 - ${response.error}`, 'error')
       }
     } catch (error) {
+      const errorMessage = error.response?.data?.error || error.message
       validatedHosts.value.push({ ip: host, status: 'error' })
       serversData.value.push({
         host,
         status: 'failed',
-        error: error.message,
+        error: errorMessage,
         collapsed: true
       })
-      addLog(`${host}: 连接失败 - ${error.message}`, 'error')
+      addLog(`${host}: 连接失败 - ${errorMessage}`, 'error')
     }
   }
 

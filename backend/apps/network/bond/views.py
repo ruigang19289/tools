@@ -22,7 +22,13 @@ def ssh_connect(host, username, password, port=22, timeout=10):
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
-            host, port=port, username=username, password=password, timeout=timeout
+            host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=timeout,
+            allow_agent=False,
+            look_for_keys=False,
         )
         return client, None
     except Exception as e:
@@ -603,6 +609,7 @@ def get_nics(request):
         host = data.get("host")
         username = data.get("username")
         password = data.get("password")
+        port = int(data.get("port") or 22)
 
         if not all([host, username, password]):
             return JsonResponse(
@@ -610,7 +617,7 @@ def get_nics(request):
             )
 
         # SSH connection
-        client, error = ssh_connect(host, username, password)
+        client, error = ssh_connect(host, username, password, port=port)
         if error:
             return JsonResponse({"status": "error", "error": error}, status=401)
 
