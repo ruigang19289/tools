@@ -14,13 +14,13 @@
           <h2 class="section-title">主机配置</h2>
 
           <div class="form-group">
-            <label>远程主机 (每行一个):</label>
+            <label>主机列表 (每行一个IP或范围):</label>
             <textarea
               v-model="hostsText"
-              rows="3"
+              rows="4"
               placeholder="192.168.1.1
 192.168.1.2
-192.168.1.3"
+192.168.1.10-20"
             ></textarea>
           </div>
 
@@ -43,10 +43,30 @@
           <button class="btn btn-primary btn-full" @click="loadConfig" :disabled="loading || !isFormValid">
             {{ loading ? '连接中...' : '验证连接' }}
           </button>
+
+          <!-- 已验证主机列表 -->
+          <div class="host-list-section" v-if="validatedHosts.length > 0">
+            <h3 class="host-list-title">已验证主机 ({{ validatedHosts.length }})</h3>
+            <div class="host-list">
+              <div
+                v-for="host in validatedHosts"
+                :key="host.ip"
+                :class="['host-item', { selected: selectedHosts.includes(host.ip) }]"
+                @click="toggleHost(host.ip)"
+              >
+                <span class="host-ip">{{ host.ip }}</span>
+                <span :class="['host-status', host.status]">{{ host.status === 'success' ? '✓' : '✗' }}</span>
+              </div>
+            </div>
+            <div class="host-list-actions">
+              <button class="btn btn-secondary btn-compact" @click="selectAll">全选</button>
+              <button class="btn btn-secondary btn-compact" @click="clearSelection">清空</button>
+            </div>
+          </div>
         </div>
 
         <!-- Bond Config Control -->
-        <div v-if="connectedServers.length > 0" class="section">
+        <div v-if="hasConnectedHosts" class="section">
           <h2 class="section-title">Bond配置</h2>
 
           <div class="btn-group">
@@ -77,14 +97,14 @@
       <!-- Right Panel: Results -->
       <div class="right-panel">
         <!-- Network Status -->
-        <div v-if="connectedServers.length > 0" class="section">
+        <div v-if="hasConnectedHosts" class="section">
           <div class="section-header">
             <h2 class="section-title">当前网络状态</h2>
             <div class="header-buttons">
               <button class="btn btn-small" @click="refreshNetworkStatus">
                 刷新
               </button>
-              <button v-if="connectedServers.length > 1" class="btn btn-small" @click="toggleAllServers">
+              <button v-if="connectedHostCount > 1" class="btn btn-small" @click="toggleAllServers">
                 {{ allExpanded ? '折叠全部' : '展开全部' }}
               </button>
             </div>
@@ -133,7 +153,7 @@
         </div>
 
         <!-- Bond Config -->
-        <div v-if="connectedServers.length > 0" class="section">
+        <div v-if="hasConnectedHosts" class="section">
           <h2 class="section-title">Bond配置</h2>
 
           <!-- Bond Groups -->
@@ -191,7 +211,7 @@
                   type="text"
                   v-model="bond.ip"
                   :class="{ 'input-error': bond.ip && !validateIPFormat(bond.ip) }"
-                  :placeholder="connectedServers.length > 1 ? `范围: 192.168.2.1-192.168.2.${connectedServers.length}/24 (${connectedServers.length}个IP)` : '192.168.1.100/24'"
+                  :placeholder="connectedHostCount > 1 ? `范围: 192.168.2.1-192.168.2.${connectedHostCount}/24 (${connectedHostCount}个IP)` : '192.168.1.100/24'"
                 >
                 <small v-if="bond.ip && !validateIPFormat(bond.ip)" class="error-hint">
                   {{ getIPErrorMessage(bond.ip) }}
@@ -230,7 +250,7 @@
         </div>
 
         <!-- Empty State -->
-        <div v-if="connectedServers.length === 0" class="section empty-section">
+        <div v-if="!hasConnectedHosts" class="section empty-section">
           <div class="empty-state">
             <span class="empty-icon">🔗</span>
             <p>输入 SSH 连接信息后点击"连接"</p>
@@ -288,6 +308,8 @@ const refreshing = ref(false)
 const applying = ref(false)
 const clearing = ref(false)
 const connectedServers = ref([])
+const validatedHosts = ref([])
+const selectedHosts = ref([])
 const serversData = ref([])
 const availableInterfaces = ref([])
 const bondConfigs = ref([])
@@ -305,12 +327,15 @@ const confirmDialog = reactive({
 })
 
 const isFormValid = computed(() => hostsText.value.trim() && username.value.trim() && password.value)
+const successfulHosts = computed(() => validatedHosts.value.filter(h => h.status === 'success').map(h => h.ip))
+const hasConnectedHosts = computed(() => successfulHosts.value.length > 0)
+const connectedHostCount = computed(() => connectedServers.value.length || successfulHosts.value.length)
 
 // 验证IP地址格式
 const validateIPFormat = (ip) => {
   if (!ip || !ip.trim()) return true // 空值不验证
 
-  const serverCount = connectedServers.value.length
+  const serverCount = connectedHostCount.value
 
   if (serverCount === 1) {
     // 单台主机：必须是单个IP格式 192.168.1.24/24
@@ -355,7 +380,7 @@ const needsGateway = (ip) => {
 
 // 获取IP地址错误提示信息
 const getIPErrorMessage = (ip) => {
-  const serverCount = connectedServers.value.length
+  const serverCount = connectedHostCount.value
 
   if (serverCount === 1) {
     return '单台主机格式：192.168.1.24/24'
@@ -414,39 +439,56 @@ const clearLogs = () => {
   logs.value = []
 }
 
-const parseServerAddresses = (input) => {
-  const addresses = []
-  const parts = input.split(/[\n,]/).map(s => s.trim()).filter(s => s)
-
-  for (const part of parts) {
-    if (part.includes('-')) {
-      const [start, end] = part.split('-').map(s => s.trim())
-      const rangeIPs = generateIPRange(start, end)
-      addresses.push(...rangeIPs)
-    } else if (part) {
-      addresses.push(part)
-    }
+const toggleHost = (ip) => {
+  const idx = selectedHosts.value.indexOf(ip)
+  if (idx > -1) {
+    selectedHosts.value.splice(idx, 1)
+  } else {
+    selectedHosts.value.push(ip)
   }
-
-  return addresses
 }
 
-const generateIPRange = (startIP, endIP) => {
-  const start = startIP.split('.').map(Number)
-  const end = endIP.split('.').map(Number)
-  const ips = []
+const selectAll = () => {
+  selectedHosts.value = successfulHosts.value
+}
 
-  for (let a = start[0]; a <= end[0]; a++) {
-    for (let b = (a === start[0] ? start[1] : 0); b <= (a === end[0] ? end[1] : 255); b++) {
-      for (let c = (a === start[0] && b === start[1] ? start[2] : 0);
-           c <= (a === end[0] && b === end[1] ? end[2] : 255); c++) {
-        for (let d = (a === start[0] && b === start[1] && c === start[2] ? start[3] : 0);
-             d <= (a === end[0] && b === end[1] && c === end[2] ? end[3] : 255); d++) {
-          ips.push(`${a}.${b}.${c}.${d}`)
+const clearSelection = () => {
+  selectedHosts.value = []
+}
+
+const parseIPRange = (input) => {
+  const ips = []
+  const lines = input.split('\n').map(l => l.trim()).filter(l => l)
+
+  for (const line of lines) {
+    if (line.includes('/')) {
+      const match = line.match(/^(\d+\.\d+\.\d+\.)(\d+)\/(\d+)$/)
+      if (match) {
+        const prefix = match[1]
+        const base = parseInt(match[2])
+        const bits = parseInt(match[3])
+        const count = Math.pow(2, 32 - bits)
+        for (let i = 0; i < count; i++) {
+          ips.push(prefix + (base + i))
         }
       }
+      continue
     }
+
+    const rangeMatch = line.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/)
+    if (rangeMatch) {
+      const prefix = rangeMatch[1]
+      const start = parseInt(rangeMatch[2])
+      const end = parseInt(rangeMatch[3])
+      for (let i = start; i <= end; i++) {
+        ips.push(prefix + i)
+      }
+      continue
+    }
+
+    ips.push(line)
   }
+
   return ips
 }
 
@@ -455,65 +497,70 @@ const loadConfig = async () => {
 
   loading.value = true
   clearLogs()
+  validatedHosts.value = []
+  connectedServers.value = []
+  selectedHosts.value = []
+  bondConfigs.value = []
 
-  try {
-    connectedServers.value = parseServerAddresses(hostsText.value)
-    serversData.value = []
+  const ips = parseIPRange(hostsText.value)
+  addLog(`开始验证 ${ips.length} 台服务器...`, 'info')
 
-    addLog(`开始连接 ${connectedServers.value.length} 台服务器...`, 'info')
+  serversData.value = []
 
-    const promises = connectedServers.value.map(async (host) => {
-      try {
-        const response = await api.post(`${API_BASE}/get-nics`, {
-          host, port: port.value, username: username.value, password: password.value
+  for (const host of ips) {
+    try {
+      const response = await api.post(`${API_BASE}/get-nics`, {
+        host, port: port.value, username: username.value, password: password.value
+      })
+
+      if (response.status === 'success') {
+        validatedHosts.value.push({ ip: host, status: 'success' })
+        serversData.value.push({
+          host,
+          interfaces: response.interfaces || [],
+          nics: response.nics || [],
+          status: 'success',
+          collapsed: true
         })
-
-        if (response.status === 'success') {
-          return {
-            host,
-            interfaces: response.interfaces || [],
-            nics: response.nics || [],
-            status: 'success',
-            collapsed: true
-          }
-        } else {
-          return {
-            host,
-            status: 'failed',
-            error: response.error || '连接失败',
-            collapsed: true
-          }
-        }
-      } catch (error) {
-        return {
+        addLog(`${host}: 连接成功`, 'success')
+      } else {
+        validatedHosts.value.push({ ip: host, status: 'error' })
+        serversData.value.push({
           host,
           status: 'failed',
-          error: error.message,
+          error: response.error || '连接失败',
           collapsed: true
-        }
+        })
+        addLog(`${host}: 连接失败 - ${response.error}`, 'error')
       }
-    })
-
-    serversData.value = await Promise.all(promises)
-
-    const successCount = serversData.value.filter(s => s.status === 'success').length
-    const failCount = serversData.value.length - successCount
-
-    addLog(`连接完成: ${successCount} 台成功` + (failCount > 0 ? `, ${failCount} 台失败` : ''), successCount > 0 ? 'success' : 'error')
-
-    const firstSuccess = serversData.value.find(s => s.status === 'success')
-    if (firstSuccess) {
-      availableInterfaces.value = firstSuccess.nics || []
-      addBondGroup()
-    } else {
-      showNotification('所有服务器连接失败', 'error')
+    } catch (error) {
+      validatedHosts.value.push({ ip: host, status: 'error' })
+      serversData.value.push({
+        host,
+        status: 'failed',
+        error: error.message,
+        collapsed: true
+      })
+      addLog(`${host}: 连接失败 - ${error.message}`, 'error')
     }
-  } catch (e) {
-    addLog(`连接失败: ${e.message}`, 'error')
-    showNotification(e.message || '请求失败', 'error')
-  } finally {
-    loading.value = false
   }
+
+  const successCount = validatedHosts.value.filter(h => h.status === 'success').length
+  const failCount = validatedHosts.value.length - successCount
+
+  addLog(`验证完成: ${successCount} 台成功` + (failCount > 0 ? `, ${failCount} 台失败` : ''), successCount > 0 ? 'success' : 'error')
+
+  const firstSuccess = serversData.value.find(s => s.status === 'success')
+  if (firstSuccess) {
+    availableInterfaces.value = firstSuccess.nics || []
+    connectedServers.value = successfulHosts.value
+    selectAll()
+    addBondGroup()
+  } else {
+    showNotification('所有服务器连接失败', 'error')
+  }
+
+  loading.value = false
 }
 
 const addBondGroup = () => {
@@ -551,15 +598,16 @@ const toggleAllServers = () => {
 }
 
 const refreshNetworkStatus = async () => {
-  if (connectedServers.value.length === 0) {
-    return showNotification('请先连接服务器', 'error')
+  const targets = selectedHosts.value.length > 0 ? selectedHosts.value : successfulHosts.value
+  if (targets.length === 0) {
+    return showNotification('请先选择主机', 'error')
   }
 
   refreshing.value = true
   addLog('刷新网络状态...', 'info')
 
   try {
-    const promises = connectedServers.value.map(async (host) => {
+    const promises = targets.map(async (host) => {
       try {
         const response = await api.post(`${API_BASE}/get-nics`, {
           host, port: port.value, username: username.value, password: password.value
@@ -621,16 +669,18 @@ const applyConfiguration = () => {
     }
   }
 
+  const targets = selectedHosts.value.length > 0 ? selectedHosts.value : successfulHosts.value
   confirmDialog.title = '⚠️ 确认配置'
-  confirmDialog.message = `即将开始配置Bond网络聚合：\n\n服务器数量: ${connectedServers.value.length} 台\nBond配置: ${bondConfigs.value.length} 个\n\n点击"确定继续"开始配置，点击"取消"放弃配置。\n\n⚠️ 注意：配置过程中请勿关闭SSH连接！`
+  confirmDialog.message = `即将开始配置Bond网络聚合：\n\n服务器数量: ${targets.length} 台\nBond配置: ${bondConfigs.value.length} 个\n\n点击"确定继续"开始配置，点击"取消"放弃配置。\n\n⚠️ 注意：配置过程中请勿关闭SSH连接！`
   confirmDialog.type = 'warning'
   confirmDialog.action = 'apply'
   confirmDialog.show = true
 }
 
 const clearAllBonds = () => {
+  const targets = selectedHosts.value.length > 0 ? selectedHosts.value : successfulHosts.value
   confirmDialog.title = '⚠️ 确认清除Bond配置'
-  confirmDialog.message = `即将清除所有服务器上的Bond配置：\n\n服务器数量: ${connectedServers.value.length} 台\n\n⚠️ 警告：\n- 此操作将删除所有Bond接口\n- 此操作将删除所有Bond配置文件\n- 此操作可能导致网络连接中断\n\n点击"确定继续"开始清除，点击"取消"放弃操作。`
+  confirmDialog.message = `即将清除 ${targets.length} 台服务器上的Bond配置：\n\n⚠️ 警告：\n- 此操作将删除所有Bond接口\n- 此操作将删除所有Bond配置文件\n- 此操作可能导致网络连接中断\n\n点击"确定继续"开始清除，点击"取消"放弃操作。`
   confirmDialog.type = 'warning'
   confirmDialog.action = 'clear'
   confirmDialog.show = true
@@ -662,18 +712,24 @@ const cancelConfirmation = () => {
 }
 
 const executeApplyConfiguration = async () => {
+  const targets = selectedHosts.value.length > 0 ? selectedHosts.value : successfulHosts.value
+  if (targets.length === 0) {
+    showNotification('请先选择主机', 'error')
+    return
+  }
+
   applying.value = true
   clearLogs()
 
-  addLog(`开始配置 ${connectedServers.value.length} 台服务器...`, 'info')
+  addLog(`开始配置 ${targets.length} 台服务器...`, 'info')
   addLog(`Bond配置数量: ${bondConfigs.value.length}`, 'info')
 
   try {
     let totalSuccess = 0
     let totalError = 0
 
-    for (let serverIndex = 0; serverIndex < connectedServers.value.length; serverIndex++) {
-      const server = connectedServers.value[serverIndex]
+    for (let serverIndex = 0; serverIndex < targets.length; serverIndex++) {
+      const server = targets[serverIndex]
       addLog(`\n========== 配置服务器 #${serverIndex + 1}: ${server} ==========`, 'info')
 
       try {
@@ -721,7 +777,7 @@ const executeApplyConfiguration = async () => {
     }
 
     addLog('\n========== 汇总 ==========', 'info')
-    addLog(`总计: ${connectedServers.value.length} 台服务器`, 'info')
+    addLog(`总计: ${targets.length} 台服务器`, 'info')
     addLog(`成功: ${totalSuccess} 台`, 'success')
     if (totalError > 0) {
       addLog(`失败: ${totalError} 台`, 'error')
@@ -740,16 +796,22 @@ const executeApplyConfiguration = async () => {
 }
 
 const executeClearBonds = async () => {
+  const targets = selectedHosts.value.length > 0 ? selectedHosts.value : successfulHosts.value
+  if (targets.length === 0) {
+    showNotification('请先选择主机', 'error')
+    return
+  }
+
   clearing.value = true
   clearLogs()
 
-  addLog(`开始清除 ${connectedServers.value.length} 台服务器的Bond配置...`, 'info')
+  addLog(`开始清除 ${targets.length} 台服务器的Bond配置...`, 'info')
 
   try {
     let totalSuccess = 0
     let totalError = 0
 
-    for (const server of connectedServers.value) {
+    for (const server of targets) {
       addLog(`\n========== 清除服务器: ${server} ==========`, 'info')
 
       try {
@@ -782,7 +844,7 @@ const executeClearBonds = async () => {
     }
 
     addLog('\n========== 汇总 ==========', 'info')
-    addLog(`总计: ${connectedServers.value.length} 台服务器`, 'info')
+    addLog(`总计: ${targets.length} 台服务器`, 'info')
     addLog(`成功: ${totalSuccess} 台`, 'success')
     if (totalError > 0) {
       addLog(`失败: ${totalError} 台`, 'error')
@@ -803,6 +865,8 @@ const executeClearBonds = async () => {
 const executeReset = () => {
   bondConfigs.value = []
   connectedServers.value = []
+  validatedHosts.value = []
+  selectedHosts.value = []
   serversData.value = []
   availableInterfaces.value = []
   clearLogs()
@@ -982,6 +1046,18 @@ const executeReset = () => {
   font-weight: 600;
   color: #6B5DD3;
 }
+.host-list-section { margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0; }
+.host-list-title { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px; }
+.host-list { max-height: 160px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; background: white; margin-bottom: 8px; }
+.host-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.host-item:last-child { border-bottom: none; }
+.host-item:hover { background: #f0f0f0; }
+.host-item.selected { background: #e8f5e9; }
+.host-ip { font-family: monospace; font-size: 13px; }
+.host-status { font-weight: 600; font-size: 14px; }
+.host-status.success { color: #4CAF50; }
+.host-status.error { color: #f44336; }
+.host-list-actions { display: flex; gap: 8px; }
 .btn-group { display: flex; flex-direction: column; gap: 8px; margin-top: 15px; }
 .btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
 .btn-full { width: 100%; }
