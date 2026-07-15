@@ -60,7 +60,7 @@ printf "镜像信息:\n"
 docker image inspect "${FULL_IMAGE_NAME}" --format 'name={{index .RepoTags 0}} id={{.Id}} size={{.Size}}'
 printf "\n"
 printf "运行容器:\n"
-printf "  docker run -d --name %s -p 6000:6000 -p 6500:6500 %s\n" "${CONTAINER_NAME}" "${FULL_IMAGE_NAME}"
+printf "  docker run -d --name %s --network host %s\n" "${CONTAINER_NAME}" "${FULL_IMAGE_NAME}"
 printf "\n"
 printf "查看日志:\n"
 printf "  docker logs %s\n" "${CONTAINER_NAME}"

@@ -83,6 +83,12 @@ frontend/src/
 ./start.sh
 ```
 
+Docker 镜像建议使用 host 网络运行，以保证容器内 SSH 可直连业务节点：
+
+```bash
+docker run -d --name sds-tools --network host tools-app:v2.0
+```
+
 默认端口：
 - 后端：`6000`
 - 前端：`6500`
