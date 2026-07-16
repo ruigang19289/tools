@@ -141,14 +141,22 @@ const respStddevChart = ref(null)
 let charts = {}
 let autoRefreshTimer = null
 
+const READ_COLOR = '#2563eb'
+const WRITE_COLOR = '#f97316'
+
+const chartPalette = [
+  '#2563eb', '#f97316', '#dc2626', '#16a34a', '#7c3aed', '#0891b2',
+  '#db2777', '#65a30d', '#ea580c', '#475569', '#0d9488', '#9333ea'
+]
+
 const initCharts = () => {
   const chartConfigs = [
-    { ref: ioRateChart, id: 'ioRateChart', label: 'I/O 速率', color: '#667eea', unit: 'IOPS' },
-    { ref: throughputChart, id: 'throughputChart', label: '吞吐量', color: '#f093fb', unit: 'MB/s' },
-    { ref: respTimeChart, id: 'respTimeChart', label: '响应时间', color: '#4facfe', unit: 'ms' },
-    { ref: cpuChart, id: 'cpuChart', label: 'CPU 使用率', color: '#43e97b', unit: '%' },
-    { ref: queueDepthChart, id: 'queueDepthChart', label: '队列深度', color: '#fa709a', unit: '' },
-    { ref: respStddevChart, id: 'respStddevChart', label: '响应时间标准差', color: '#feca57', unit: 'ms' }
+    { ref: ioRateChart, id: 'ioRateChart', label: 'I/O 速率', unit: 'IOPS' },
+    { ref: throughputChart, id: 'throughputChart', label: '吞吐量', unit: 'MB/s' },
+    { ref: respTimeChart, id: 'respTimeChart', label: '响应时间', unit: 'ms' },
+    { ref: cpuChart, id: 'cpuChart', label: 'CPU 使用率', unit: '%' },
+    { ref: queueDepthChart, id: 'queueDepthChart', label: '队列深度', unit: '' },
+    { ref: respStddevChart, id: 'respStddevChart', label: '响应时间标准差', unit: 'ms' }
   ]
 
   chartConfigs.forEach(config => {
@@ -157,28 +165,30 @@ const initCharts = () => {
         type: 'line',
         data: {
           labels: [],
-          datasets: [{
-            label: config.label,
-            data: [],
-            borderColor: config.color,
-            backgroundColor: config.color + '20',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 4
-          }]
+          datasets: []
         },
         options: {
           responsive: true,
           maintainAspectRatio: true,
           plugins: {
-            legend: { display: false },
+            legend: {
+              display: true,
+              position: 'right',
+              labels: {
+                usePointStyle: true,
+                boxWidth: 8,
+                boxHeight: 8,
+                font: { size: 11 }
+              }
+            },
             tooltip: {
               mode: 'index',
               intersect: false,
               callbacks: {
-                label: (context) => `${config.label}: ${context.parsed.y.toFixed(2)} ${config.unit}`
+                label: (context) => {
+                  if (context.parsed.y === null) return ''
+                  return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} ${config.unit}`
+                }
               }
             }
           },
@@ -191,7 +201,7 @@ const initCharts = () => {
             y: {
               display: true,
               beginAtZero: true,
-              grid: { color: '#f0f0f0' }
+              grid: { color: '#eef0f5' }
             }
           },
           interaction: {
@@ -205,10 +215,23 @@ const initCharts = () => {
   })
 }
 
-const updateChart = (chartId, labels, data) => {
+const makeDataset = (label, data, color) => ({
+  label,
+  data,
+  borderColor: color,
+  backgroundColor: `${color}20`,
+  borderWidth: 2,
+  fill: true,
+  tension: 0.25,
+  pointRadius: 0,
+  pointHoverRadius: 4,
+  spanGaps: false
+})
+
+const updateChart = (chartId, labels, datasets) => {
   if (charts[chartId]) {
     charts[chartId].data.labels = labels
-    charts[chartId].data.datasets[0].data = data
+    charts[chartId].data.datasets = datasets
     charts[chartId].update('none')
   }
 }
@@ -293,19 +316,62 @@ const loadData = async (testName) => {
   }
 }
 
+const getRdLabel = (point) => {
+  const bytesIo = Number(point.bytes_io || 0)
+  if (bytesIo >= 1048576) {
+    const mb = bytesIo / 1048576
+    return `${point.rd_name}-${mb % 1 === 0 ? mb.toFixed(0) : mb.toFixed(1)}M`
+  }
+  const kb = bytesIo / 1024
+  return `${point.rd_name}-${kb % 1 === 0 ? kb.toFixed(0) : kb.toFixed(1)}K`
+}
+
+const buildSplitDatasets = (performanceData, metric) => {
+  const series = new Map()
+
+  performanceData.forEach((point, index) => {
+    const readPct = Number(point.read_pct || 0)
+    const baseLabel = getRdLabel(point)
+
+    const addPoint = (key, label, value, color) => {
+      if (!series.has(key)) {
+        series.set(key, { label, color, data: Array(performanceData.length).fill(null) })
+      }
+      series.get(key).data[index] = Number.isFinite(value) ? value : null
+    }
+
+    if (metric === 'io_rate') {
+      if (readPct > 0) addPoint(`${baseLabel}-read-iops`, `${baseLabel} 读`, point.io_rate * readPct / 100, READ_COLOR)
+      if (readPct < 100) addPoint(`${baseLabel}-write-iops`, `${baseLabel} 写`, point.io_rate * (100 - readPct) / 100, WRITE_COLOR)
+    } else if (metric === 'mb_sec') {
+      if (readPct > 0) addPoint(`${baseLabel}-read-mb`, `${baseLabel} 读`, point.mb_sec * readPct / 100, READ_COLOR)
+      if (readPct < 100) addPoint(`${baseLabel}-write-mb`, `${baseLabel} 写`, point.mb_sec * (100 - readPct) / 100, WRITE_COLOR)
+    } else if (metric === 'resp_time') {
+      if (readPct > 0) addPoint(`${baseLabel}-read-resp`, `${baseLabel} 读`, Number(point.read_resp || 0), READ_COLOR)
+      if (readPct < 100) addPoint(`${baseLabel}-write-resp`, `${baseLabel} 写`, Number(point.write_resp || 0), WRITE_COLOR)
+    } else {
+      addPoint(`${baseLabel}-${metric}`, baseLabel, Number(point[metric] || 0), null)
+    }
+  })
+
+  return Array.from(series.values()).map((item, index) => (
+    makeDataset(item.label, item.data, item.color || chartPalette[index % chartPalette.length])
+  ))
+}
+
 const updateChartsData = (performanceData) => {
   if (!performanceData || performanceData.length === 0) {
     return
   }
 
-  const labels = performanceData.map(d => `${d.interval}`)
+  const labels = performanceData.map((d, index) => d.timestamp || `${index + 1}`)
 
-  updateChart('ioRateChart', labels, performanceData.map(d => d.io_rate))
-  updateChart('throughputChart', labels, performanceData.map(d => d.mb_sec))
-  updateChart('respTimeChart', labels, performanceData.map(d => d.resp_time))
-  updateChart('cpuChart', labels, performanceData.map(d => d.cpu_total))
-  updateChart('queueDepthChart', labels, performanceData.map(d => d.queue_depth))
-  updateChart('respStddevChart', labels, performanceData.map(d => d.resp_stddev))
+  updateChart('ioRateChart', labels, buildSplitDatasets(performanceData, 'io_rate'))
+  updateChart('throughputChart', labels, buildSplitDatasets(performanceData, 'mb_sec'))
+  updateChart('respTimeChart', labels, buildSplitDatasets(performanceData, 'resp_time'))
+  updateChart('cpuChart', labels, buildSplitDatasets(performanceData, 'cpu_total'))
+  updateChart('queueDepthChart', labels, buildSplitDatasets(performanceData, 'queue_depth'))
+  updateChart('respStddevChart', labels, buildSplitDatasets(performanceData, 'resp_stddev'))
 }
 
 const loadTestDirectories = async () => {
@@ -382,7 +448,7 @@ const clearChartsAndSummary = () => {
   Object.keys(charts).forEach(chartId => {
     if (charts[chartId]) {
       charts[chartId].data.labels = []
-      charts[chartId].data.datasets[0].data = []
+      charts[chartId].data.datasets = []
       charts[chartId].update()
     }
   })
