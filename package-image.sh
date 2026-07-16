@@ -109,11 +109,21 @@ if docker ps -a --format '{{.Names}}' | grep -qx "\$CONTAINER_NAME"; then
     docker rm -f "\$CONTAINER_NAME"
 fi
 
+echo "=== Prepare VDBench result directory ==="
+if [ -d /root/vdbench50407 ]; then
+    mkdir -p /root/vdbench50407/output
+else
+    mkdir -p /root/vdbench50407/output
+fi
+
+VDBENCH_MOUNT="/root/vdbench50407/output:/app/data/vdbench-result"
+
 echo "=== Start container ==="
 docker run -d \\
     --name "\$CONTAINER_NAME" \\
     --restart unless-stopped \\
     --network host \\
+    -v "\$VDBENCH_MOUNT" \\
     "\$IMAGE_NAME:\$IMAGE_TAG"
 
 echo "=== Container status ==="
