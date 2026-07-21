@@ -11,12 +11,12 @@
           <h2 class="section-title">主机配置</h2>
 
           <div class="form-group">
-            <label>远程主机 (每行一个):</label>
+            <label>主机列表 (每行一个IP或范围):</label>
             <textarea
               v-model="hostsText"
               placeholder="192.168.1.1
-192.168.1.2
-192.168.1.3"
+192.168.1.10-12
+192.168.1.20"
               rows="3"
             ></textarea>
           </div>
@@ -119,26 +119,29 @@
               <label>卷名称:</label>
               <input type="text" v-model="params.filename" placeholder="rbdtest1">
             </div>
-            <div class="form-group">
-              <label>测试大小:</label>
-              <input type="text" v-model="params.size" placeholder="100G">
-            </div>
+            <div class="form-group"></div>
           </div>
 
           <template v-else>
-            <div class="form-row">
-              <div class="form-group">
-                <label>卷名称:</label>
-                <input type="text" v-model="params.filename" placeholder="/dev/sdb">
+            <div class="form-group">
+              <div class="device-label-row">
+                <label>测试盘符:</label>
+                <label v-if="scannedDevices.length > 0" class="device-select-all">
+                  <span>全选</span>
+                  <input type="checkbox" :checked="allScannedDevicesSelected" @change="toggleAllScannedDevices">
+                </label>
               </div>
-              <div class="form-group"></div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>测试大小:</label>
-                <input type="text" v-model="params.size" placeholder="100G">
+              <div v-if="scannedDevices.length > 0" class="device-list">
+                <label v-for="dev in scannedDevices" :key="dev.path" class="device-item" :class="{ active: selectedDevices.includes(dev.path) }">
+                  <div class="device-info">
+                    <span>{{ dev.path }}</span>
+                    <small>{{ dev.alias }} {{ dev.size ? `| ${dev.size}` : '' }}</small>
+                  </div>
+                  <input type="checkbox" :value="dev.path" v-model="selectedDevices">
+                </label>
               </div>
-              <div class="form-group"></div>
+              <div v-else class="device-empty">未扫描到 multipath dm-* 盘，可手动填写普通裸设备</div>
+              <input class="device-manual-input" type="text" v-model="manualDevices" placeholder="手动输入: /dev/sdb 或 /dev/sdb:/dev/sdc">
             </div>
           </template>
 
@@ -201,8 +204,8 @@
             </div>
 
             <div class="form-group">
-              <label>CPU 核心:</label>
-              <input type="text" v-model="params.cpus_allowed" placeholder="0-7">
+              <label>CPU 核心（自动检测）:</label>
+              <input type="text" v-model="params.cpus_allowed" placeholder="无匹配核心时不绑定">
             </div>
           </div>
         </div>
@@ -322,6 +325,17 @@
             </div>
           </div>
         </div>
+
+        <div class="command-section">
+          <div class="command-header">
+            <span class="command-title">FIO 完整运行命令</span>
+            <button v-if="displayFioCommand" class="btn btn-compact" @click="copyDisplayCommand">复制</button>
+          </div>
+          <div v-if="!displayFioCommand" class="command-empty">启动任务后显示实际执行的完整命令</div>
+          <div v-else class="command-item">
+            <code>{{ displayFioCommand }}</code>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -359,9 +373,8 @@ const params = reactive({
   numjobs: 4,
   runtime: 60,
   ioengine: 'libaio',
-  filename: '/dev/sdb',
+  filename: '',
   pool: 'pool-rbdtest1',
-  size: '100G',
   cpus_allowed: ''
 })
 
@@ -377,6 +390,7 @@ const isTesting = ref(false)
 const testCompleted = ref(false)
 const taskId = ref('')
 const pollTimer = ref(null)
+const statusPollTimer = ref(null)
 const elapsedSeconds = ref(0)
 
 const currentStats = reactive({ iops: 0, bw: 0, lat: 0, readIops: 0, writeIops: 0, readBw: 0, writeBw: 0 })
@@ -393,6 +407,7 @@ const minStats = reactive({ iops: 999999999, bw: 999999999, lat: 999999999 })
 const finalStats = reactive({ iops: 0, bw: 0, lat: 0 })
 
 const hostStats = ref({})
+const fioCommands = ref({})
 let statsAggregationTimer = null
 
 const iopsChart = ref(null)
@@ -413,6 +428,10 @@ const activeHostTab = ref('')
 
 const validationResults = ref([])
 const connectedHosts = ref([])
+const cpusAllowedByHost = ref({})
+const scannedDevices = ref([])
+const selectedDevices = ref([])
+const manualDevices = ref('')
 
 const notification = reactive({
   show: false,
@@ -422,12 +441,12 @@ const notification = reactive({
 
 watch(() => params.ioengine, (newEngine) => {
   if (newEngine === 'rbd') {
-    if (params.filename === '/dev/sdb' || !params.filename) {
+    if (!params.filename) {
       params.filename = 'rbdtest1'
     }
   } else {
-    if (params.filename === 'rbdtest1' || !params.filename) {
-      params.filename = '/dev/sdb'
+    if (params.filename === 'rbdtest1') {
+      params.filename = ''
     }
   }
 })
@@ -439,7 +458,8 @@ const canValidate = computed(() => {
 
 const canStart = computed(() => {
   const validHosts = getValidHosts()
-  return validHosts.length > 0 && validationResults.value.length > 0 &&
+  const targetReady = params.ioengine === 'rbd' ? !!params.filename : getSelectedBlockDevices().length > 0
+  return targetReady && validHosts.length > 0 && validationResults.value.length > 0 &&
     validationResults.value.every(r => r.status === 'success' && r.has_fio)
 })
 
@@ -453,11 +473,65 @@ const progressPercent = computed(() => {
   return Math.min(100, (elapsedSeconds.value / params.runtime) * 100)
 })
 
-const getValidHosts = () => {
-  return hostsText.value
-    .split('\n')
-    .map(h => h.trim())
-    .filter(h => h)
+const parseIPRange = (text) => {
+  const ips = []
+  text.split('\n').forEach(line => {
+    line = line.trim()
+    if (!line) return
+
+    const cidrMatch = line.match(/^(\d+\.\d+\.\d+\.)(\d+)\/(\d+)$/)
+    if (cidrMatch) {
+      const prefix = cidrMatch[1]
+      const base = parseInt(cidrMatch[2])
+      const bits = parseInt(cidrMatch[3])
+      const count = Math.pow(2, 32 - bits)
+      for (let i = 0; i < count; i++) {
+        ips.push(prefix + (base + i))
+      }
+      return
+    }
+
+    const rangeMatch = line.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/)
+    if (rangeMatch) {
+      const prefix = rangeMatch[1]
+      const start = parseInt(rangeMatch[2])
+      const end = parseInt(rangeMatch[3])
+      for (let i = start; i <= end; i++) {
+        ips.push(prefix + i)
+      }
+      return
+    }
+
+    ips.push(line)
+  })
+  return ips
+}
+
+const getValidHosts = () => parseIPRange(hostsText.value)
+
+const getSelectedBlockDevices = () => {
+  const devices = [...selectedDevices.value]
+  manualDevices.value
+    .split(/[:\s,，]+/)
+    .map(d => d.trim())
+    .filter(Boolean)
+    .forEach(d => {
+      if (!devices.includes(d)) devices.push(d)
+    })
+  return devices
+}
+
+const allScannedDevicesSelected = computed(() =>
+  scannedDevices.value.length > 0 &&
+  scannedDevices.value.every(dev => selectedDevices.value.includes(dev.path))
+)
+
+const toggleAllScannedDevices = () => {
+  if (allScannedDevicesSelected.value) {
+    selectedDevices.value = []
+  } else {
+    selectedDevices.value = scannedDevices.value.map(dev => dev.path)
+  }
 }
 
 const showNotification = (message, type = 'info') => {
@@ -482,6 +556,33 @@ const addTerminalLine = (type, text, host = null) => {
     }
   })
 }
+
+const copyText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    showNotification('命令已复制', 'success')
+  } catch (error) {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    showNotification('命令已复制', 'success')
+  }
+}
+
+const formatFioCommand = (command) => {
+  const index = command.indexOf('fio ')
+  return index >= 0 ? command.slice(index) : command
+}
+
+const displayFioCommand = computed(() => {
+  const command = Object.values(fioCommands.value)[0]
+  return command ? formatFioCommand(command) : ''
+})
+
+const copyDisplayCommand = () => copyText(displayFioCommand.value)
 
 const clearOutput = () => {
   if (activeHostTab.value && hostTerminals.value[activeHostTab.value]) {
@@ -567,7 +668,7 @@ const connectWebSocket = () => {
 }
 
 const handleWebSocketMessage = (message) => {
-  const { type, data, stats, host } = message
+  const { type, data, stats, host, command } = message
 
   if (type === 'joined') {
     return
@@ -591,6 +692,10 @@ const handleWebSocketMessage = (message) => {
           addTerminalLine('info', line, targetHost)
         }
       })
+    }
+  } else if (type === 'command') {
+    if (host && command) {
+      fioCommands.value = { ...fioCommands.value, [host]: command }
     }
   } else if (type === 'stats') {
     if (stats && host) {
@@ -778,10 +883,31 @@ const validateHosts = async () => {
       activeHostTab.value = connectedHosts.value[0]
     }
 
+    const detectedCpuMap = {}
     data.results.forEach(r => {
       const icon = r.status === 'success' ? '✅' : r.status === 'warning' ? '⚠️' : '❌'
       addTerminalLine(r.status === 'error' ? 'error' : 'info', `${icon} ${r.host}: ${r.message}`)
+      if (r.devices && r.devices.length > 0) {
+        addTerminalLine('info', `${r.host} 盘符: ${r.devices.map(d => d.path).join(', ')}`)
+      }
+      detectedCpuMap[r.host] = r.recommended_cpus || ''
+      addTerminalLine('info', `${r.host} CPU绑定: ${r.recommended_cpus || '不绑定'}`)
     })
+    cpusAllowedByHost.value = detectedCpuMap
+    const detectedRanges = Array.from(new Set(Object.values(detectedCpuMap).filter(Boolean)))
+    params.cpus_allowed = detectedRanges.length === 1 ? detectedRanges[0] : ''
+
+    const deviceMap = new Map()
+    data.results.forEach(r => {
+      ;(r.devices || []).forEach(d => {
+        if (!deviceMap.has(d.path)) deviceMap.set(d.path, d)
+      })
+    })
+    scannedDevices.value = Array.from(deviceMap.values()).sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }))
+    selectedDevices.value = selectedDevices.value.filter(path => deviceMap.has(path))
+    if (selectedDevices.value.length === 0 && scannedDevices.value.length > 0) {
+      selectedDevices.value = [scannedDevices.value[0].path]
+    }
 
     const hasError = data.results.some(r => r.status === 'error')
     const hasWarning = data.results.some(r => r.status === 'warning')
@@ -809,14 +935,14 @@ const startTest = async () => {
   if (params.ioengine === 'rbd') {
     fioCommand += ` --ioengine=rbd --pool=${params.pool || 'pool-rbdtest1'} --rbdname=${params.filename || 'rbdtest1'}`
   } else {
-    fioCommand += ` --filename=${params.filename || '/dev/sdb'} --ioengine=libaio`
+    fioCommand += ` --filename=${getSelectedBlockDevices().join(':')} --ioengine=libaio`
   }
 
   fioCommand += ` --iodepth=${params.iodepth} --numjobs=${params.numjobs} --rw=${params.rw} --bs=${params.bs}`
   if (params.rw === 'randrw') {
     fioCommand += ` --rwmixread=${params.rwmixread}`
   }
-  fioCommand += ` --group_reporting --name=mytest --size=${params.size || '100G'}`
+  fioCommand += ` --group_reporting --name=mytest`
   fioCommand += ' --status-interval=1'
 
   if (params.runtime) {
@@ -849,6 +975,7 @@ const startTest = async () => {
   chartData.lat = []
   chartData.labels = []
   hostStats.value = {}
+  fioCommands.value = {}
 
   addTerminalLine('info', '='.repeat(50))
   addTerminalLine('info', '开始 FIO 测试')
@@ -872,11 +999,12 @@ const startTest = async () => {
           iodepth: params.iodepth,
           numjobs: params.numjobs,
           runtime: params.runtime,
-          size: params.size,
           ioengine: params.ioengine,
-          filename: params.filename,
+          filename: params.ioengine === 'rbd' ? params.filename : getSelectedBlockDevices().join(':'),
+          selected_devices: params.ioengine === 'rbd' ? [] : getSelectedBlockDevices(),
           pool: params.pool,
-          cpus_allowed: params.cpus_allowed
+          cpus_allowed: params.cpus_allowed,
+          cpus_allowed_by_host: cpusAllowedByHost.value
         }
       })
     })
@@ -891,6 +1019,7 @@ const startTest = async () => {
       await connectWebSocket()
       joinTask(taskId.value)
       startElapsedTimer()
+      startStatusPolling()
 
       showNotification('测试已启动', 'success')
     } else {
@@ -921,9 +1050,58 @@ const stopTest = async () => {
     clearInterval(pollTimer.value)
     pollTimer.value = null
   }
+  if (statusPollTimer.value) {
+    clearInterval(statusPollTimer.value)
+    statusPollTimer.value = null
+  }
 
   addTerminalLine('warning', '测试已手动停止')
   showNotification('测试已停止', 'info')
+}
+
+const startStatusPolling = () => {
+  if (statusPollTimer.value) {
+    clearInterval(statusPollTimer.value)
+  }
+
+  statusPollTimer.value = setInterval(async () => {
+    if (!taskId.value || !isTesting.value) return
+    try {
+      const response = await fetch(`${API_BASE}/get-output?task_id=${taskId.value}`)
+      if (!response.ok) return
+      const data = await response.json()
+      if (data.commands && Object.keys(data.commands).length > 0) {
+        fioCommands.value = { ...data.commands }
+      }
+      if (data.host_stats) {
+        Object.entries(data.host_stats).forEach(([host, stats]) => {
+          hostStats.value[host] = {
+            iops: stats.iops || 0,
+            bw: stats.bw_mb || 0,
+            lat: (stats.latency_us / 1000) || 0,
+            readIops: stats.read_iops || 0,
+            writeIops: stats.write_iops || 0,
+            readBw: stats.read_bw_mb || 0,
+            writeBw: stats.write_bw_mb || 0,
+            timestamp: Date.now()
+          }
+        })
+        if (Object.keys(data.host_stats).length > 0) {
+          aggregateAndUpdateStats()
+        }
+      } else if (data.stats) {
+        currentStats.iops = data.stats.iops || currentStats.iops
+        currentStats.bw = data.stats.bw_mb || currentStats.bw
+        currentStats.lat = data.stats.latency_us ? data.stats.latency_us / 1000 : currentStats.lat
+        updateCharts()
+      }
+      if (['completed', 'partial', 'stopped', 'error'].includes(data.status)) {
+        finishTest(data.status)
+      }
+    } catch (error) {
+      console.warn('状态轮询失败:', error)
+    }
+  }, 2000)
 }
 
 const startElapsedTimer = () => {
@@ -948,6 +1126,10 @@ const finishTest = (status = 'completed') => {
   if (statsAggregationTimer) {
     clearTimeout(statsAggregationTimer)
     statsAggregationTimer = null
+  }
+  if (statusPollTimer.value) {
+    clearInterval(statusPollTimer.value)
+    statusPollTimer.value = null
   }
 
   if (chartData.iops.length > 0) {
@@ -994,6 +1176,9 @@ onUnmounted(() => {
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
   }
+  if (statusPollTimer.value) {
+    clearInterval(statusPollTimer.value)
+  }
   Object.values(charts).forEach(chart => {
     if (chart) chart.destroy()
   })
@@ -1019,10 +1204,11 @@ onMounted(() => {
 }
 .fio-page::before { content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: repeating-linear-gradient(45deg, transparent, transparent 35px, rgba(255,255,255,0.05) 35px, rgba(255,255,255,0.05) 70px); pointer-events: none; z-index: 0; }
 .fio-page > * { position: relative; z-index: 1; }
+.fio-page, .main-content, .right-panel, .top-row, .summary-cards, .middle-row, .terminal-section, .chart-wrapper { min-width: 0; }
 
 .main-content {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 20px;
 }
 
@@ -1064,6 +1250,19 @@ onMounted(() => {
 .form-group select:focus,
 .form-group textarea:focus { outline: none; border-color: #6B5DD3; box-shadow: 0 0 0 3px rgba(107, 93, 211, 0.1); }
 .form-group textarea { resize: vertical; min-height: 70px; font-family: inherit; }
+.device-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-right: 14px; box-sizing: border-box; }
+.device-label-row > label:first-child { margin-bottom: 0; }
+.device-select-all { display: inline-flex !important; align-items: center; gap: 6px; margin: 0 !important; cursor: pointer; color: #555; }
+.device-select-all input[type="checkbox"] { width: 16px !important; min-width: 16px; height: 16px; margin: 0; padding: 0; box-shadow: none; }
+.device-list { display: grid; gap: 6px; max-height: 150px; overflow-y: auto; padding-right: 4px; }
+.device-item { position: relative; display: block; padding: 8px 34px 8px 10px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; cursor: pointer; }
+.device-item.active { border-color: #6B5DD3; background: #f4f1ff; }
+.device-item input[type="checkbox"] { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 16px !important; min-width: 16px; height: 16px; padding: 0; margin: 0; box-shadow: none; }
+.device-info { min-width: 0; display: flex; align-items: baseline; gap: 3px; white-space: nowrap; overflow: hidden; padding-right: 4px; }
+.device-info span { font-weight: 600; color: #333; flex-shrink: 0; }
+.device-info small { color: #777; font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.device-empty { padding: 12px; border: 1px dashed #ccc; border-radius: 8px; color: #777; font-size: 12px; background: #fafafa; }
+.device-manual-input { margin-top: 10px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .btn-full { width: 100%; }
 .validation-summary { margin-top: 10px; text-align: center; }
@@ -1083,9 +1282,9 @@ onMounted(() => {
 .mix-label { font-size: 13px; color: #666; min-width: 80px; }
 .params-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .actions-section { display: flex; flex-direction: column; gap: 10px; }
-.right-panel { display: flex; flex-direction: column; gap: 15px; }
-.top-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-.summary-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.right-panel { display: flex; flex-direction: column; gap: 15px; min-width: 0; }
+.top-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 15px; min-width: 0; }
+.summary-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; min-width: 0; }
 .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 15px; }
 .card-icon { font-size: 20px; }
 .card-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -1094,12 +1293,12 @@ onMounted(() => {
 .card-subvalue { margin-top: 4px; font-size: 12px; color: #666; line-height: 1.4; min-height: 17px; }
 .card-subvalue-placeholder { visibility: hidden; }
 .card-unit { font-size: 12px; color: #999; margin-top: 2px; }
-.middle-row { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-.chart-wrapper { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+.middle-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 15px; min-width: 0; }
+.chart-wrapper { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); min-width: 0; overflow: hidden; }
 .chart-wrapper h3 { font-size: 14px; color: #333; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #f0f0f0; }
-.chart-wrapper canvas { max-height: 200px !important; height: 200px !important; }
+.chart-wrapper canvas { display: block; width: 100% !important; max-width: 100% !important; max-height: 200px !important; height: 200px !important; }
 .card-empty .card-unit { visibility: hidden; }
-.terminal-section { background: rgba(255, 255, 255, 0.95); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; }
+.terminal-section { background: rgba(255, 255, 255, 0.95); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .terminal-header { display: flex; justify-content: space-between; align-items: flex-start; margin: 0; margin-bottom: 15px; flex-shrink: 0; }
 .terminal-title { font-size: 16px; font-weight: 600; color: #333; }
 .terminal-controls { display: flex; gap: 10px; }
@@ -1110,10 +1309,20 @@ onMounted(() => {
 .host-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .host-tab { padding: 6px 12px; background: #f0f0f0; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.3s; }
 .host-tab.active { background: #6B5DD3; color: white; }
-.terminal-window { background: #1a1a1a; color: #00ff00; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; }
+.terminal-window { background: #1a1a1a; color: #00ff00; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; overflow-x: auto; white-space: pre-wrap; line-height: 1.5; max-width: 100%; box-sizing: border-box; }
 .terminal-empty { color: #666; text-align: center; padding: 40px; }
 .terminal-line.error { color: #ff6b6b; }
 .terminal-line.success { color: #51cf66; }
+.command-section { background: rgba(255, 255, 255, 0.95); border-radius: 12px; padding: 16px 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); min-width: 0; }
+.command-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.command-title { font-size: 16px; font-weight: 600; color: #333; }
+.command-empty { color: #888; font-size: 13px; padding: 14px; border: 1px dashed #ccc; border-radius: 8px; }
+.command-list { display: grid; gap: 10px; }
+.command-item { min-width: 0; background: #171923; border-radius: 8px; padding: 10px 12px; }
+.command-host-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.command-host { color: #8bdbff; font-size: 12px; font-weight: 700; }
+.command-copy { border: 0; border-radius: 5px; padding: 3px 9px; color: white; background: #6B5DD3; cursor: pointer; font-size: 11px; }
+.command-item code { display: block; color: #d7f9df; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 9999; animation: slideIn 0.3s ease; }
 .notification.success { background: #4CAF50; }
 .notification.error { background: #f44336; }
@@ -1121,7 +1330,8 @@ onMounted(() => {
 .notification.warning { background: #ff9800; }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @media (max-width: 768px) {
-  .main-content, .top-row, .middle-row { grid-template-columns: 1fr; }
+  .main-content { grid-template-columns: 1fr; }
+  .top-row, .middle-row, .summary-cards { grid-template-columns: 1fr; }
   .form-row, .params-grid, .summary-cards { grid-template-columns: 1fr; }
   .test-type-grid { grid-template-columns: repeat(2, 1fr); }
 }

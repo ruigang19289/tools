@@ -31,6 +31,60 @@ def ssh_connect(host, username, password, port=22, timeout=10):
         return None, str(e)
 
 
+def scan_dm_devices(ssh):
+    """只按 multipath -ll 中的 dm-* 行收集多路径盘。"""
+    script = r"""
+multipath -ll 2>/dev/null | awk '/ dm-[0-9]+/ {print}' | while read -r line; do
+  alias=$(echo "$line" | awk '{print $1}')
+  wwid=$(echo "$line" | sed -n 's/.*(\([^)]*\)).*/\1/p')
+  dm=$(echo "$line" | grep -o 'dm-[0-9]\+' | head -1)
+  [ -n "$dm" ] || continue
+  path="/dev/$dm"
+  size=$(lsblk -dn -o SIZE "$path" 2>/dev/null | awk '{$1=$1;print}')
+  printf '%s|%s|%s|%s|%s\n' "$path" "$dm" "$size" "$alias" "$wwid"
+done | sort -V -t '|' -k2,2
+"""
+    stdin, stdout, stderr = ssh.exec_command(script)
+    output = stdout.read().decode(errors='ignore')
+    devices = []
+    for line in output.splitlines():
+        parts = line.split('|')
+        if len(parts) < 5:
+            continue
+        path, name, size, alias, wwid = parts[:5]
+        devices.append({
+            'path': path,
+            'name': name,
+            'size': size,
+            'alias': alias,
+            'wwid': wwid,
+            'label': f'{path} ({alias}, {size})' if size else f'{path} ({alias})',
+        })
+    return devices
+
+
+def detect_fio_cpu_range(ssh):
+    """选择远端存在的预留 CPU 范围；均不存在时不绑定。"""
+    script = r"""
+online=$(lscpu -p=CPU,ONLINE 2>/dev/null | awk -F, '$1 !~ /^#/ && ($2 == "Y" || $2 == "") {print $1}')
+has_range() {
+  start=$1
+  end=$2
+  for cpu in $(seq "$start" "$end"); do
+    echo "$online" | grep -qx "$cpu" || return 1
+  done
+}
+if has_range 20 29; then
+  echo 20-29
+elif has_range 30 39; then
+  echo 30-39
+fi
+"""
+    stdin, stdout, stderr = ssh.exec_command(script)
+    value = stdout.read().decode(errors='ignore').strip()
+    return value if value in ('20-29', '30-39') else ''
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def validate_hosts(request):
@@ -48,12 +102,16 @@ def validate_hosts(request):
         if ssh:
             stdin, stdout, stderr = ssh.exec_command("which fio")
             has_fio = stdout.read().decode().strip() != ''
+            devices = scan_dm_devices(ssh) if has_fio else []
+            recommended_cpus = detect_fio_cpu_range(ssh) if has_fio else ''
 
             results.append({
                 'host': host,
                 'status': 'success' if has_fio else 'warning',
-                'message': '连接成功' + ('，FIO 已安装' if has_fio else '，FIO 未安装'),
-                'has_fio': has_fio
+                'message': '连接成功' + ('，FIO 已安装' if has_fio else '，FIO 未安装') + (f'，发现 {len(devices)} 个 dm 设备' if devices else '，未发现 dm 设备'),
+                'has_fio': has_fio,
+                'devices': devices,
+                'recommended_cpus': recommended_cpus
             })
             ssh.close()
         else:
@@ -132,32 +190,98 @@ def run_fio_test(task_id, host, username, password, port, params):
     iodepth = params.get('iodepth', 64)
     numjobs = params.get('numjobs', 4)
     runtime = params.get('runtime', 60)
-    size = params.get('size', '100G')
+    selected_devices = params.get('selected_devices') or []
     cpus_allowed = params.get('cpus_allowed', '')
+    cpus_allowed_by_host = params.get('cpus_allowed_by_host') or {}
+    cpus_allowed = cpus_allowed_by_host.get(host, cpus_allowed)
+
+    if selected_devices:
+        filename = ':'.join(selected_devices)
+
+    def _parse_size_to_bytes(value):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        value = str(value).strip()
+        if not value:
+            return None
+        import re
+        m = re.match(r'^(\d+(?:\.\d+)?)([KkMmGgTtPp]?)$', value)
+        if not m:
+            return None
+        number = float(m.group(1))
+        unit = m.group(2).upper()
+        factor = {
+            '': 1,
+            'K': 1024,
+            'M': 1024 ** 2,
+            'G': 1024 ** 3,
+            'T': 1024 ** 4,
+            'P': 1024 ** 5,
+        }.get(unit)
+        if factor is None:
+            return None
+        return int(number * factor)
 
     if ioengine == 'rbd':
         cmd = f'fio --direct=1 --ioengine=rbd --pool={pool} --rbdname={filename}'
     else:
         cmd = f'fio --direct=1 --filename={filename} --ioengine=libaio'
+        if filename.startswith('/dev/'):
+            devices_to_check = [dev for dev in filename.split(':') if dev]
+            _send_to_consumer(task_id, {
+                'type': 'output',
+                'data': f'[{host}] 检测到裸设备测试: {", ".join(devices_to_check)}\n'
+            })
+            for dev in devices_to_check:
+                stdin2, stdout2, stderr2 = ssh.exec_command(f'test -b {dev} && echo OK || echo MISSING')
+                if stdout2.read().decode().strip() != 'OK':
+                    _send_to_consumer(task_id, {
+                        'type': 'output',
+                        'data': f'[{host}] 警告: {dev} 不是可用块设备\n'
+                    })
 
     cmd += f' --iodepth={iodepth} --numjobs={numjobs} --rw={rw} --bs={bs}'
     if rw == 'randrw':
         cmd += f' --rwmixread={rwmixread}'
-    cmd += f' --group_reporting --name=mytest --size={size}'
+    cmd += ' --group_reporting --name=mytest'
     cmd += ' --status-interval=1'
 
-    if runtime:
-        cmd += f' --runtime={runtime} --time_based'
+    try:
+        runtime_int = int(runtime)
+    except (TypeError, ValueError):
+        runtime_int = 60
+
+    # The UI runtime is authoritative: fio stops by --time_based, timeout is only a guard.
+    if runtime_int > 0:
+        cmd += f' --runtime={runtime_int} --time_based'
 
     if cpus_allowed and cpus_allowed.strip():
         cmd += f' --cpus_allowed={cpus_allowed} --cpus_allowed_policy=split'
 
+    if runtime_int > 0:
+        guard_timeout = runtime_int + 15
+        cmd = f'timeout -s INT -k 10 {guard_timeout}s {cmd}'
+
+    with active_tests_lock:
+        if task_id in active_tests:
+            active_tests[task_id].setdefault('commands', {})[host] = cmd
+
+    _send_to_consumer(task_id, {
+        'type': 'command',
+        'command': cmd,
+        'host': host
+    })
     _send_to_consumer(task_id, {
         'type': 'output',
-        'data': f'[{host}] 执行命令: {cmd}\n'
+        'data': f'[{host}] 执行命令: {cmd}\n',
+        'host': host
     })
 
     output_lines = []
+    stderr_lines = []
+    exit_status = None
     test_stats = {
         'iops': 0,
         'bw_mb': 0,
@@ -174,7 +298,7 @@ def run_fio_test(task_id, host, username, password, port, params):
     channel.exec_command(cmd)
 
     start_time = time.time()
-    timeout = int(runtime) + 30
+    timeout = runtime_int + 20 if runtime_int > 0 else 3600
 
     try:
         while time.time() - start_time < timeout:
@@ -250,22 +374,67 @@ def run_fio_test(task_id, host, username, password, port, params):
                             elif unit == 'msec':
                                 test_stats['latency_us'] = val * 1000
 
-                            if test_stats['iops'] > 0 or test_stats['bw_mb'] > 0:
-                                with active_tests_lock:
+                        # fio output may be split across SSH recv chunks. Push as soon as
+                        # IOPS/BW is available instead of waiting for a latency line.
+                        if test_stats['iops'] > 0 or test_stats['bw_mb'] > 0:
+                            with active_tests_lock:
+                                if task_id in active_tests:
+                                    active_tests[task_id].setdefault('host_stats', {})[host] = test_stats.copy()
                                     active_tests[task_id]['stats'] = test_stats.copy()
 
-                                _send_to_consumer(task_id, {
-                                    'type': 'stats',
-                                    'stats': test_stats.copy(),
-                                    'host': host
-                                })
+                            _send_to_consumer(task_id, {
+                                'type': 'stats',
+                                'stats': test_stats.copy(),
+                                'host': host
+                            })
                     except Exception as e:
                         logger.error(f"Failed to parse FIO output: {e}")
 
+            if channel.recv_stderr_ready():
+                err_output = channel.recv_stderr(4096).decode('utf-8', errors='ignore')
+                if err_output:
+                    stderr_lines.append(err_output)
+                    output_lines.append(err_output)
+                    _send_to_consumer(task_id, {
+                        'type': 'output',
+                        'data': err_output,
+                        'host': host
+                    })
+
             if channel.exit_status_ready():
+                # Drain remaining stdout/stderr after fio exits so final summary is not lost.
+                while channel.recv_ready():
+                    output = channel.recv(4096).decode('utf-8', errors='ignore')
+                    if output:
+                        output_lines.append(output)
+                        _send_to_consumer(task_id, {
+                            'type': 'output',
+                            'data': output,
+                            'host': host
+                        })
+                while channel.recv_stderr_ready():
+                    err_output = channel.recv_stderr(4096).decode('utf-8', errors='ignore')
+                    if err_output:
+                        stderr_lines.append(err_output)
+                        output_lines.append(err_output)
+                        _send_to_consumer(task_id, {
+                            'type': 'output',
+                            'data': err_output,
+                            'host': host
+                        })
                 break
 
             time.sleep(0.1)
+        else:
+            _send_to_consumer(task_id, {
+                'type': 'output',
+                'data': f'[{host}] 超过前端设置时长 {runtime_int}s 后仍未退出，保护超时触发\n',
+                'host': host
+            })
+            try:
+                channel.close()
+            except Exception:
+                pass
 
     except Exception as e:
         with active_tests_lock:
@@ -275,24 +444,56 @@ def run_fio_test(task_id, host, username, password, port, params):
             'data': f'[{host}] 错误: {str(e)}\n'
         })
 
+    try:
+        exit_status = channel.recv_exit_status() if not channel.closed else 124
+    except Exception:
+        exit_status = None
+
     channel.close()
     ssh.close()
 
-    final_status = 'completed'
+    combined_output = ''.join(output_lines)
+    fio_summary_ok = 'Run status group' in combined_output and 'err= 0' in combined_output
+    effective_exit_status = 0 if exit_status == 124 and fio_summary_ok else exit_status
+
+    final_status = 'running'
+    error_text = ''
+    all_hosts_finished = False
     with active_tests_lock:
         if task_id in active_tests:
-            active_tests[task_id]['completed_hosts'] += 1
-            active_tests[task_id]['output'] = output_lines
-            active_tests[task_id]['stats'] = test_stats
-            active_tests[task_id]['completed_at'] = time.time()
-            total_hosts = len(active_tests[task_id]['hosts'])
-            if active_tests[task_id].get('stop'):
-                final_status = 'stopped'
-            elif active_tests[task_id]['completed_hosts'] < total_hosts:
+            test = active_tests[task_id]
+            test['completed_hosts'] += 1
+            test['output'] = output_lines
+            test['stats'] = test_stats
+            test['completed_at'] = time.time()
+            total_hosts = len(test['hosts'])
+            all_hosts_finished = test['completed_hosts'] >= total_hosts
+
+            if effective_exit_status not in (None, 0):
+                error_text = f'[{host}] fio 退出码 {effective_exit_status}'
+                if stderr_lines:
+                    error_text += '\n' + ''.join(stderr_lines[-5:])
+                test['failed_hosts'].append({'host': host, 'error': error_text})
+                test['error'] = error_text
+
+            if not all_hosts_finished:
                 final_status = 'running'
-            elif active_tests[task_id]['failed_hosts']:
+            elif test.get('stop'):
+                final_status = 'stopped'
+            elif not test['failed_hosts']:
+                final_status = 'completed'
+            elif len(test['failed_hosts']) < total_hosts:
                 final_status = 'partial'
-            active_tests[task_id]['status'] = final_status
+            else:
+                final_status = 'error'
+            test['status'] = final_status
+
+    if effective_exit_status not in (None, 0):
+        _send_to_consumer(task_id, {
+            'type': 'output',
+            'data': error_text + '\n',
+            'host': host
+        })
 
     _send_to_consumer(task_id, {
         'type': 'output',
@@ -300,10 +501,10 @@ def run_fio_test(task_id, host, username, password, port, params):
         'host': host
     })
 
-    if final_status in ('completed', 'partial', 'stopped'):
+    if all_hosts_finished:
         _send_to_consumer(task_id, {
             'type': 'completed',
-            'stats': test_stats,
+            'stats': active_tests.get(task_id, {}).get('stats', test_stats),
             'status': final_status
         })
 
@@ -330,6 +531,8 @@ def start_test(request):
         'status': 'starting',
         'output': [],
         'stats': {},
+        'host_stats': {},
+        'commands': {},
         'stop': False,
         'start_time': time.time(),
         'completed_hosts': 0,
@@ -338,8 +541,6 @@ def start_test(request):
 
     for i, host in enumerate(hosts):
         thread_params = test_params.copy()
-        thread_params['size'] = test_params.get('size', f'{1 << (30 - i)}')
-
         thread = threading.Thread(
             target=run_fio_test,
             args=(task_id, host, username, password, port, thread_params)
@@ -384,6 +585,8 @@ def get_output(request):
         'status': test['status'],
         'output': test.get('output', []),
         'stats': test.get('stats', {}),
+        'host_stats': test.get('host_stats', {}),
+        'commands': test.get('commands', {}),
         'failed_hosts': test.get('failed_hosts', []),
         'elapsed': time.time() - test.get('start_time', time.time()),
     })
@@ -403,6 +606,8 @@ def get_results(request):
     return JsonResponse({
         'status': test['status'],
         'stats': test.get('stats', {}),
+        'host_stats': test.get('host_stats', {}),
+        'commands': test.get('commands', {}),
         'failed_hosts': test.get('failed_hosts', []),
         'elapsed': time.time() - test.get('start_time', time.time()),
     })

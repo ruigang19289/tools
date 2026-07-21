@@ -58,6 +58,8 @@ if [ -x "./venv/Scripts/daphne" ]; then
     DAPHNE_CMD="./venv/Scripts/daphne"
 elif [ -x "./venv/Scripts/daphne.exe" ]; then
     DAPHNE_CMD="./venv/Scripts/daphne.exe"
+elif [ -x "./venv/bin/python" ] && ./venv/bin/python -m daphne --version >/dev/null 2>&1; then
+    DAPHNE_CMD="./venv/bin/python -m daphne"
 elif [ -x "./venv/bin/daphne" ] && ./venv/bin/daphne --version >/dev/null 2>&1; then
     DAPHNE_CMD="./venv/bin/daphne"
 elif command -v daphne >/dev/null 2>&1; then
