@@ -537,6 +537,9 @@ def start_test(request):
         'start_time': time.time(),
         'completed_hosts': 0,
         'failed_hosts': [],
+        'username': username,
+        'password': password,
+        'port': port,
     }
 
     for i, host in enumerate(hosts):
@@ -555,19 +558,66 @@ def start_test(request):
     })
 
 
+def _stop_remote_fio(host, username, password, port):
+    """Stop all fio processes on one test host and verify they exited."""
+    ssh, error = ssh_connect(host, username, password, port)
+    if not ssh:
+        return {'host': host, 'success': False, 'error': f'SSH 连接失败: {error}'}
+
+    command = (
+        "killall -INT fio 2>/dev/null || true; "
+        "for i in 1 2 3 4 5; do pgrep -x fio >/dev/null || exit 0; sleep 1; done; "
+        "killall -KILL fio 2>/dev/null || true; sleep 1; "
+        "pgrep -x fio >/dev/null && exit 1 || exit 0"
+    )
+    try:
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=12)
+        error_text = stderr.read().decode('utf-8', errors='ignore').strip()
+        exit_status = stdout.channel.recv_exit_status()
+        return {
+            'host': host,
+            'success': exit_status == 0,
+            'error': error_text or ('fio 进程仍然存在' if exit_status else ''),
+        }
+    except Exception as exc:
+        return {'host': host, 'success': False, 'error': str(exc)}
+    finally:
+        ssh.close()
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def stop_test(request):
-    """停止测试"""
+    """停止任务，并在所有源端终止 fio 进程。"""
     data = json.loads(request.body)
     task_id = data.get('task_id')
 
-    if task_id and task_id in active_tests:
-        active_tests[task_id]['stop'] = True
-        active_tests[task_id]['status'] = 'stopped'
-        return JsonResponse({'status': 'success'})
+    with active_tests_lock:
+        test = active_tests.get(task_id)
+        if not test:
+            return JsonResponse({'status': 'error', 'error': '任务不存在'}, status=404)
+        test['stop'] = True
+        test['status'] = 'stopping'
+        hosts = list(test.get('hosts', []))
+        username = test.get('username', 'root')
+        password = test.get('password', '')
+        port = test.get('port', 22)
 
-    return JsonResponse({'status': 'error', 'error': '任务不存在'}, status=404)
+    results = [_stop_remote_fio(host, username, password, port) for host in hosts]
+    failed = [result for result in results if not result['success']]
+
+    with active_tests_lock:
+        if task_id in active_tests:
+            active_tests[task_id]['status'] = 'stop_failed' if failed else 'stopped'
+            active_tests[task_id]['stop_results'] = results
+
+    if failed:
+        return JsonResponse({
+            'status': 'error',
+            'error': '部分源端 fio 停止失败',
+            'results': results,
+        }, status=500)
+    return JsonResponse({'status': 'success', 'results': results})
 
 
 @csrf_exempt

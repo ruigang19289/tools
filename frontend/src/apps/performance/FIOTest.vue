@@ -215,8 +215,8 @@
             {{ isTesting ? '测试中...' : '开始测试' }}
           </button>
 
-          <button v-if="isTesting" class="btn btn-danger btn-full" @click="stopTest">
-            停止测试
+          <button v-if="isTesting" class="btn btn-danger btn-full" @click="stopTest" :disabled="isStopping">
+            {{ isStopping ? '正在停止源端 FIO...' : '停止测试' }}
           </button>
         </div>
       </div>
@@ -421,6 +421,7 @@ const rwLabels = {
 }
 
 const isTesting = ref(false)
+const isStopping = ref(false)
 const testCompleted = ref(false)
 const finishHandledTaskId = ref('')
 const taskRunToken = ref(0)
@@ -1134,30 +1135,44 @@ const startTest = async () => {
 }
 
 const stopTest = async () => {
-  if (taskId.value) {
-    if (ws && wsConnected.value) {
-      ws.send(JSON.stringify({ action: 'stop', task_id: taskId.value }))
-    }
+  if (!taskId.value || isStopping.value) return
+  isStopping.value = true
+  addTerminalLine('warning', '正在停止所有源端 FIO 进程...')
 
-    await fetch(`${API_BASE}/stop-test`, {
+  try {
+    const response = await fetch(`${API_BASE}/stop-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: taskId.value })
     })
-  }
+    const data = await response.json()
+    if (!response.ok || data.status !== 'success') {
+      const details = (data.results || [])
+        .filter(result => !result.success)
+        .map(result => `${result.host}: ${result.error || '停止失败'}`)
+        .join('；')
+      throw new Error(details || data.error || '停止失败')
+    }
 
-  isTesting.value = false
-  if (pollTimer.value) {
-    clearInterval(pollTimer.value)
-    pollTimer.value = null
-  }
-  if (statusPollTimer.value) {
-    clearInterval(statusPollTimer.value)
-    statusPollTimer.value = null
-  }
+    isTesting.value = false
+    if (pollTimer.value) {
+      clearInterval(pollTimer.value)
+      pollTimer.value = null
+    }
+    if (statusPollTimer.value) {
+      clearInterval(statusPollTimer.value)
+      statusPollTimer.value = null
+    }
 
-  addTerminalLine('warning', '测试已手动停止')
-  showNotification('测试已停止', 'info')
+    data.results.forEach(result => addTerminalLine('success', `${result.host}: FIO 已停止`))
+    addTerminalLine('warning', '测试已手动停止')
+    showNotification('所有源端 FIO 已停止', 'success')
+  } catch (error) {
+    addTerminalLine('error', `停止失败: ${error.message}`)
+    showNotification(`停止失败: ${error.message}`, 'error')
+  } finally {
+    isStopping.value = false
+  }
 }
 
 const startStatusPolling = () => {
