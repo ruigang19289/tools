@@ -343,7 +343,7 @@
               <h2 class="result-title">测试结果汇总</h2>
               <p>每种读写模型保留最近一次测试结果</p>
             </div>
-            <button v-if="hasSavedResults" class="btn btn-compact" @click="copyTestResult">复制表格</button>
+            <button class="btn btn-compact" :disabled="!hasCopyableResult" @click="copyTestResult">复制结果</button>
           </div>
           <div class="result-table-wrap">
             <table class="result-table">
@@ -512,6 +512,7 @@ const savedResults = reactive({})
 const activeTestConfig = ref(null)
 const hasTestResult = computed(() => chartData.iops.length > 0)
 const hasSavedResults = computed(() => !!savedResults[params.rw])
+const hasCopyableResult = computed(() => hasSavedResults.value || (isTesting.value && hasTestResult.value))
 const resultRows = computed(() => {
   const key = params.rw
   if (!supportedResultTypes.includes(key)) return []
