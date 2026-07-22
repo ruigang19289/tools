@@ -422,6 +422,8 @@ const rwLabels = {
 
 const isTesting = ref(false)
 const testCompleted = ref(false)
+const finishHandledTaskId = ref('')
+const taskRunToken = ref(0)
 const taskId = ref('')
 const pollTimer = ref(null)
 const statusPollTimer = ref(null)
@@ -1020,6 +1022,8 @@ const validateHosts = async () => {
 
 const startTest = async () => {
   const validHosts = getValidHosts()
+  taskRunToken.value++
+  finishHandledTaskId.value = ''
   activeTestConfig.value = {
     rw: params.rw,
     bs: params.bs,
@@ -1212,6 +1216,10 @@ const startElapsedTimer = () => {
 }
 
 const finishTest = (status = 'completed') => {
+  // WebSocket and status polling can report completion at the same time.
+  if (!taskId.value || finishHandledTaskId.value === taskId.value) return
+  finishHandledTaskId.value = taskId.value
+
   isTesting.value = false
   testCompleted.value = status === 'completed' || status === 'partial'
 
