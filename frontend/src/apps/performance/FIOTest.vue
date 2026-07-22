@@ -340,30 +340,34 @@
         <div class="result-section">
           <div class="result-header">
             <div>
-              <h2 class="result-title">测试结果</h2>
-              <p>所有测试节点的汇总性能</p>
+              <h2 class="result-title">测试结果汇总</h2>
+              <p>每种读写模型保留最近一次测试结果</p>
             </div>
-            <button v-if="hasTestResult" class="btn btn-compact" @click="copyTestResult">复制结果</button>
+            <button v-if="hasSavedResults" class="btn btn-compact" @click="copyTestResult">复制表格</button>
           </div>
-          <div class="result-grid">
-            <div class="result-metric">
-              <span>总 IOPS</span>
-              <strong>{{ resultIops }}</strong>
-              <small>IOPS</small>
-            </div>
-            <div class="result-metric">
-              <span>平均延迟</span>
-              <strong>{{ resultLat }}</strong>
-              <small>ms</small>
-            </div>
-            <div class="result-metric">
-              <span>总带宽</span>
-              <strong>{{ resultBw }}</strong>
-              <small>MB/s</small>
-            </div>
-          </div>
-          <div v-if="mixStatsMode && hasTestResult" class="mixed-result-detail">
-            读：{{ avgReadIops }} IOPS / {{ avgReadBw }} MB/s　写：{{ avgWriteIops }} IOPS / {{ avgWriteBw }} MB/s
+          <div class="result-table-wrap">
+            <table class="result-table">
+              <thead>
+                <tr>
+                  <th>读写模型</th>
+                  <th>平均 IOPS</th>
+                  <th>平均吞吐</th>
+                  <th>平均响应时间</th>
+                  <th>numjobs</th>
+                  <th>iodepth</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in resultRows" :key="row.key" :class="{ 'result-row-current': isTesting && params.rw === row.key }">
+                  <td>{{ row.label }}</td>
+                  <td>{{ row.iops }}</td>
+                  <td>{{ row.bw }}</td>
+                  <td>{{ row.lat }}</td>
+                  <td>{{ row.numjobs }}</td>
+                  <td>{{ row.iodepth }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -503,13 +507,28 @@ const progressPercent = computed(() => {
   return Math.min(100, (elapsedSeconds.value / params.runtime) * 100)
 })
 
+const resultOrder = ['randwrite', 'randread', 'write', 'read']
+const savedResults = reactive({})
+const activeTestConfig = ref(null)
 const hasTestResult = computed(() => chartData.iops.length > 0)
-const resultIops = computed(() => hasTestResult.value ? (avgIops.value !== '--' ? avgIops.value : currentStats.iops.toFixed(0)) : '--')
-const resultBw = computed(() => hasTestResult.value ? (avgBw.value !== '--' ? avgBw.value : currentStats.bw.toFixed(1)) : '--')
-const resultLat = computed(() => hasTestResult.value ? (avgLat.value !== '--' ? avgLat.value : currentStats.lat.toFixed(2)) : '--')
-const testResultText = computed(() => (
-  `FIO 测试结果：总 IOPS ${resultIops.value}，平均延迟 ${resultLat.value} ms，总带宽 ${resultBw.value} MB/s`
-))
+const hasSavedResults = computed(() => Object.keys(savedResults).length > 0)
+const resultRows = computed(() => resultOrder.map(key => {
+  const saved = savedResults[key]
+  const isCurrent = isTesting.value && params.rw === key && hasTestResult.value
+  return {
+    key,
+    label: rwLabels[key],
+    iops: saved?.iops ?? (isCurrent ? currentStats.iops.toFixed(0) : '--'),
+    bw: saved?.bw ? `${saved.bw} MB/s` : (isCurrent ? `${currentStats.bw.toFixed(1)} MB/s` : '--'),
+    lat: saved?.lat ? `${saved.lat} ms` : (isCurrent ? `${currentStats.lat.toFixed(2)} ms` : '--'),
+    numjobs: saved?.numjobs ?? (isCurrent ? params.numjobs : '--'),
+    iodepth: saved?.iodepth ?? (isCurrent ? params.iodepth : '--')
+  }
+}))
+const testResultText = computed(() => [
+  '读写模型\t平均 IOPS\t平均吞吐\t平均响应时间\tnumjobs\tiodepth',
+  ...resultRows.value.map(row => `${row.label}\t${row.iops}\t${row.bw}\t${row.lat}\t${row.numjobs}\t${row.iodepth}`)
+].join('\n'))
 
 const parseIPRange = (text) => {
   const ips = []
@@ -981,6 +1000,11 @@ const validateHosts = async () => {
 
 const startTest = async () => {
   const validHosts = getValidHosts()
+  activeTestConfig.value = {
+    rw: params.rw,
+    numjobs: params.numjobs,
+    iodepth: params.iodepth
+  }
 
   let fioCommand = 'fio --direct=1'
 
@@ -1210,6 +1234,17 @@ const finishTest = (status = 'completed') => {
   finalStats.bw = parseFloat(avgBw.value) || 0
   finalStats.lat = parseFloat(avgLat.value) || 0
 
+  const completedConfig = activeTestConfig.value
+  if (completedConfig && resultOrder.includes(completedConfig.rw) && chartData.iops.length > 0 && status !== 'error') {
+    savedResults[completedConfig.rw] = {
+      iops: avgIops.value,
+      bw: avgBw.value,
+      lat: avgLat.value,
+      numjobs: completedConfig.numjobs,
+      iodepth: completedConfig.iodepth
+    }
+  }
+
   const statusText = status === 'partial' ? '测试部分完成' : status === 'stopped' ? '测试已停止' : status === 'error' ? '测试失败' : '测试完成'
   const lineType = status === 'error' ? 'error' : status === 'stopped' ? 'warning' : 'success'
   const notificationType = status === 'error' ? 'error' : status === 'stopped' ? 'info' : status === 'partial' ? 'warning' : 'success'
@@ -1379,12 +1414,16 @@ onMounted(() => {
 .result-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .result-title { margin: 0 0 4px; color: #302944; font-size: 18px; }
 .result-header p { margin: 0; color: #8a8395; font-size: 12px; }
-.result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.result-metric { position: relative; min-height: 108px; padding: 18px; border-radius: 10px; background: linear-gradient(135deg, #f7f5ff, #fff); border-left: 4px solid #6b5dd3; display: flex; flex-direction: column; justify-content: center; }
-.result-metric span { color: #777083; font-size: 13px; }
-.result-metric strong { margin-top: 6px; color: #392f64; font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.result-metric small { position: absolute; right: 16px; bottom: 15px; color: #9a94a5; }
-.mixed-result-detail { margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: #f7f5ff; color: #5d536d; font-size: 13px; }
+.result-table-wrap { overflow-x: auto; border: 1px solid #b9c8e8; border-radius: 8px; }
+.result-table { width: 100%; min-width: 720px; border-collapse: collapse; color: #34394a; font-size: 14px; }
+.result-table th, .result-table td { padding: 15px 14px; text-align: center; border-right: 1px solid #d6def0; border-bottom: 1px solid #d6def0; font-variant-numeric: tabular-nums; }
+.result-table th:last-child, .result-table td:last-child { border-right: 0; }
+.result-table tbody tr:last-child td { border-bottom: 0; }
+.result-table th { background: #bdcdec; color: #25304a; font-weight: 700; white-space: nowrap; }
+.result-table td { background: #eef3fc; }
+.result-table td:first-child { text-align: left; font-weight: 600; }
+.result-table tbody tr:nth-child(even) td { background: #e7eefb; }
+.result-table tbody tr.result-row-current td { background: #fff4d8; }
 .notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 9999; animation: slideIn 0.3s ease; }
 .notification.success { background: #4CAF50; }
 .notification.error { background: #f44336; }
@@ -1396,6 +1435,5 @@ onMounted(() => {
   .top-row, .middle-row, .summary-cards { grid-template-columns: 1fr; }
   .form-row, .params-grid, .summary-cards { grid-template-columns: 1fr; }
   .test-type-grid { grid-template-columns: repeat(2, 1fr); }
-  .result-grid { grid-template-columns: 1fr; }
 }
 </style>
