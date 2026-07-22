@@ -350,21 +350,21 @@
               <thead>
                 <tr>
                   <th>读写模型</th>
+                  <th>numjobs</th>
+                  <th>iodepth</th>
                   <th>平均 IOPS</th>
                   <th>平均吞吐</th>
                   <th>平均响应时间</th>
-                  <th>numjobs</th>
-                  <th>iodepth</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in resultRows" :key="row.key" :class="{ 'result-row-current': isTesting && params.rw === row.key }">
                   <td>{{ row.label }}</td>
+                  <td>{{ row.numjobs }}</td>
+                  <td>{{ row.iodepth }}</td>
                   <td>{{ row.iops }}</td>
                   <td>{{ row.bw }}</td>
                   <td>{{ row.lat }}</td>
-                  <td>{{ row.numjobs }}</td>
-                  <td>{{ row.iodepth }}</td>
                 </tr>
               </tbody>
             </table>
@@ -526,8 +526,8 @@ const resultRows = computed(() => resultOrder.map(key => {
   }
 }))
 const testResultText = computed(() => [
-  '读写模型\t平均 IOPS\t平均吞吐\t平均响应时间\tnumjobs\tiodepth',
-  ...resultRows.value.map(row => `${row.label}\t${row.iops}\t${row.bw}\t${row.lat}\t${row.numjobs}\t${row.iodepth}`)
+  '读写模型\tnumjobs\tiodepth\t平均 IOPS\t平均吞吐\t平均响应时间',
+  ...resultRows.value.map(row => `${row.label}\t${row.numjobs}\t${row.iodepth}\t${row.iops}\t${row.bw}\t${row.lat}`)
 ].join('\n'))
 
 const parseIPRange = (text) => {
