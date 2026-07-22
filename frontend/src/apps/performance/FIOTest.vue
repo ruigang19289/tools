@@ -341,7 +341,7 @@
           <div class="result-header">
             <div>
               <h2 class="result-title">测试结果汇总</h2>
-              <p>每种读写模型保留最近一次测试结果</p>
+              <p>按块大小和读写类型展示，保留最近 10 条测试记录</p>
             </div>
             <button class="btn btn-compact" :disabled="!hasCopyableResult" @click="copyTestResult">复制结果</button>
           </div>
@@ -349,7 +349,7 @@
             <table class="result-table">
               <thead>
                 <tr>
-                  <th>读写模型</th>
+                  <th>测试类型</th>
                   <th>numjobs</th>
                   <th>iodepth</th>
                   <th>平均 IOPS</th>
@@ -358,7 +358,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in resultRows" :key="row.key" :class="{ 'result-row-current': isTesting && params.rw === row.key }">
+                <tr v-for="row in resultRows" :key="row.id" :class="{ 'result-row-current': row.current }">
                   <td>{{ row.label }}</td>
                   <td>{{ row.numjobs }}</td>
                   <td>{{ row.iodepth }}</td>
@@ -508,6 +508,12 @@ const progressPercent = computed(() => {
 })
 
 const supportedResultTypes = ['randwrite', 'randread', 'randrw', 'write', 'read']
+const resultHistory = reactive([])
+const blockSizeLabel = value => {
+  const text = String(value || '').trim()
+  return text.replace(/k$/i, 'K').replace(/m$/i, 'M').replace(/g$/i, 'G')
+}
+const resultTypeLabel = (bs, rw) => `${blockSizeLabel(bs)}${rwLabels[rw] || rw}`
 const blockSizeToMiB = value => {
   const match = String(value || '').trim().match(/^(\d+(?:\.\d+)?)([kKmMgG])$/)
   if (!match) return 0
@@ -519,29 +525,27 @@ const blockSizeToMiB = value => {
   return 0
 }
 const bandwidthFromIops = (iops, bs) => Number(iops) * blockSizeToMiB(bs)
-const savedResults = reactive({})
 const activeTestConfig = ref(null)
 const hasTestResult = computed(() => chartData.iops.length > 0)
-const hasSavedResults = computed(() => !!savedResults[params.rw])
-const hasCopyableResult = computed(() => hasSavedResults.value || (isTesting.value && hasTestResult.value))
+const hasCopyableResult = computed(() => resultHistory.length > 0 || (isTesting.value && hasTestResult.value))
 const resultRows = computed(() => {
-  const key = params.rw
-  if (!supportedResultTypes.includes(key)) return []
-
-  const saved = savedResults[key]
-  const isCurrent = isTesting.value && hasTestResult.value
-  return [{
-    key,
-    label: rwLabels[key],
-    iops: saved?.iops ?? (isCurrent ? currentStats.iops.toFixed(0) : '--'),
-    bw: saved?.bw ? `${saved.bw} MiB/s` : (isCurrent ? `${bandwidthFromIops(currentStats.iops, params.bs).toFixed(1)} MiB/s` : '--'),
-    lat: saved?.lat ? `${saved.lat} ms` : (isCurrent ? `${currentStats.lat.toFixed(2)} ms` : '--'),
-    numjobs: saved?.numjobs ?? (isCurrent ? params.numjobs : '--'),
-    iodepth: saved?.iodepth ?? (isCurrent ? params.iodepth : '--')
-  }]
+  const rows = resultHistory.map(row => ({ ...row, current: false }))
+  if (isTesting.value && hasTestResult.value && supportedResultTypes.includes(params.rw)) {
+    rows.unshift({
+      id: 'current',
+      label: resultTypeLabel(params.bs, params.rw),
+      iops: currentStats.iops.toFixed(0),
+      bw: `${bandwidthFromIops(currentStats.iops, params.bs).toFixed(1)} MiB/s`,
+      lat: `${currentStats.lat.toFixed(2)} ms`,
+      numjobs: params.numjobs,
+      iodepth: params.iodepth,
+      current: true
+    })
+  }
+  return rows.slice(0, 10)
 })
 const testResultText = computed(() => [
-  '读写模型\tnumjobs\tiodepth\t平均 IOPS\t平均吞吐\t平均响应时间',
+  '测试类型\tnumjobs\tiodepth\t平均 IOPS\t平均吞吐\t平均响应时间',
   ...resultRows.value.map(row => `${row.label}\t${row.numjobs}\t${row.iodepth}\t${row.iops}\t${row.bw}\t${row.lat}`)
 ].join('\n'))
 
@@ -1253,13 +1257,17 @@ const finishTest = (status = 'completed') => {
 
   const completedConfig = activeTestConfig.value
   if (completedConfig && supportedResultTypes.includes(completedConfig.rw) && chartData.iops.length > 0 && status !== 'error') {
-    savedResults[completedConfig.rw] = {
+    resultHistory.unshift({
+      id: `${Date.now()}-${completedConfig.rw}`,
+      label: resultTypeLabel(completedConfig.bs, completedConfig.rw),
       iops: avgIops.value,
-      bw: avgBw.value,
-      lat: avgLat.value,
+      bw: `${avgBw.value} MiB/s`,
+      lat: `${avgLat.value} ms`,
       numjobs: completedConfig.numjobs,
-      iodepth: completedConfig.iodepth
-    }
+      iodepth: completedConfig.iodepth,
+      current: false
+    })
+    if (resultHistory.length > 10) resultHistory.splice(10)
   }
 
   const statusText = status === 'partial' ? '测试部分完成' : status === 'stopped' ? '测试已停止' : status === 'error' ? '测试失败' : '测试完成'
