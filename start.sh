@@ -33,9 +33,9 @@ fi
 # 安装依赖
 echo -e "${YELLOW}检查并安装 Python 依赖...${NC}"
 if [ -f "backend/requirements.txt" ]; then
-    pip install -q -r backend/requirements.txt 2>/dev/null || true
+    python -m pip install -q -r backend/requirements.txt 2>/dev/null || true
 else
-    pip install -q django djangorestframework django-cors-headers channels daphne paramiko Pillow python-dotenv 2>/dev/null || true
+    python -m pip install -q django djangorestframework django-cors-headers channels daphne paramiko Pillow python-dotenv 2>/dev/null || true
 fi
 
 # 安装前端依赖
