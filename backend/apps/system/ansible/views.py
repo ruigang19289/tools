@@ -88,10 +88,12 @@ def split_ansible_output_by_host(stdout, stderr, host_ips, success):
 
 
 def run_ansible_command(cmd_args):
-    """执行 Ansible 命令"""
+    """执行 Ansible 命令，优先使用当前 Python 虚拟环境中的 CLI。"""
     try:
         env = os.environ.copy()
         env['ANSIBLE_HOST_KEY_CHECKING'] = 'False'
+        if cmd_args and cmd_args[0] == 'ansible':
+            cmd_args = [os.path.join(os.path.dirname(os.sys.executable), 'ansible'), *cmd_args[1:]]
         result = subprocess.run(
             cmd_args,
             capture_output=True,
