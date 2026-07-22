@@ -507,15 +507,18 @@ const progressPercent = computed(() => {
   return Math.min(100, (elapsedSeconds.value / params.runtime) * 100)
 })
 
-const resultOrder = ['randwrite', 'randread', 'write', 'read']
+const supportedResultTypes = ['randwrite', 'randread', 'randrw', 'write', 'read']
 const savedResults = reactive({})
 const activeTestConfig = ref(null)
 const hasTestResult = computed(() => chartData.iops.length > 0)
-const hasSavedResults = computed(() => Object.keys(savedResults).length > 0)
-const resultRows = computed(() => resultOrder.map(key => {
+const hasSavedResults = computed(() => !!savedResults[params.rw])
+const resultRows = computed(() => {
+  const key = params.rw
+  if (!supportedResultTypes.includes(key)) return []
+
   const saved = savedResults[key]
-  const isCurrent = isTesting.value && params.rw === key && hasTestResult.value
-  return {
+  const isCurrent = isTesting.value && hasTestResult.value
+  return [{
     key,
     label: rwLabels[key],
     iops: saved?.iops ?? (isCurrent ? currentStats.iops.toFixed(0) : '--'),
@@ -523,8 +526,8 @@ const resultRows = computed(() => resultOrder.map(key => {
     lat: saved?.lat ? `${saved.lat} ms` : (isCurrent ? `${currentStats.lat.toFixed(2)} ms` : '--'),
     numjobs: saved?.numjobs ?? (isCurrent ? params.numjobs : '--'),
     iodepth: saved?.iodepth ?? (isCurrent ? params.iodepth : '--')
-  }
-}))
+  }]
+})
 const testResultText = computed(() => [
   '读写模型\tnumjobs\tiodepth\t平均 IOPS\t平均吞吐\t平均响应时间',
   ...resultRows.value.map(row => `${row.label}\t${row.numjobs}\t${row.iodepth}\t${row.iops}\t${row.bw}\t${row.lat}`)
@@ -1235,7 +1238,7 @@ const finishTest = (status = 'completed') => {
   finalStats.lat = parseFloat(avgLat.value) || 0
 
   const completedConfig = activeTestConfig.value
-  if (completedConfig && resultOrder.includes(completedConfig.rw) && chartData.iops.length > 0 && status !== 'error') {
+  if (completedConfig && supportedResultTypes.includes(completedConfig.rw) && chartData.iops.length > 0 && status !== 'error') {
     savedResults[completedConfig.rw] = {
       iops: avgIops.value,
       bw: avgBw.value,
