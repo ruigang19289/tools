@@ -508,6 +508,17 @@ const progressPercent = computed(() => {
 })
 
 const supportedResultTypes = ['randwrite', 'randread', 'randrw', 'write', 'read']
+const blockSizeToMiB = value => {
+  const match = String(value || '').trim().match(/^(\d+(?:\.\d+)?)([kKmMgG])$/)
+  if (!match) return 0
+  const number = Number(match[1])
+  const unit = match[2].toLowerCase()
+  if (unit === 'k') return number / 1024
+  if (unit === 'm') return number
+  if (unit === 'g') return number * 1024
+  return 0
+}
+const bandwidthFromIops = (iops, bs) => Number(iops) * blockSizeToMiB(bs)
 const savedResults = reactive({})
 const activeTestConfig = ref(null)
 const hasTestResult = computed(() => chartData.iops.length > 0)
@@ -523,7 +534,7 @@ const resultRows = computed(() => {
     key,
     label: rwLabels[key],
     iops: saved?.iops ?? (isCurrent ? currentStats.iops.toFixed(0) : '--'),
-    bw: saved?.bw ? `${saved.bw} MB/s` : (isCurrent ? `${currentStats.bw.toFixed(1)} MB/s` : '--'),
+    bw: saved?.bw ? `${saved.bw} MiB/s` : (isCurrent ? `${bandwidthFromIops(currentStats.iops, params.bs).toFixed(1)} MiB/s` : '--'),
     lat: saved?.lat ? `${saved.lat} ms` : (isCurrent ? `${currentStats.lat.toFixed(2)} ms` : '--'),
     numjobs: saved?.numjobs ?? (isCurrent ? params.numjobs : '--'),
     iodepth: saved?.iodepth ?? (isCurrent ? params.iodepth : '--')
@@ -894,7 +905,8 @@ const aggregateAndUpdateStats = () => {
   const avgLatency = latCount > 0 ? totalLat / latCount : 0
 
   currentStats.iops = totalIops
-  currentStats.bw = totalBw
+  // Keep the displayed bandwidth mathematically consistent with IOPS and block size.
+  currentStats.bw = bandwidthFromIops(totalIops, params.bs)
   currentStats.lat = avgLatency
 
   updateCharts()
@@ -1006,6 +1018,7 @@ const startTest = async () => {
   const validHosts = getValidHosts()
   activeTestConfig.value = {
     rw: params.rw,
+    bs: params.bs,
     numjobs: params.numjobs,
     iodepth: params.iodepth
   }
@@ -1217,9 +1230,9 @@ const finishTest = (status = 'completed') => {
     avgIops.value = (sumIops / chartData.iops.length).toFixed(0)
   }
 
-  if (chartData.bw.length > 0) {
-    const sumBw = chartData.bw.reduce((a, b) => a + b, 0)
-    avgBw.value = (sumBw / chartData.bw.length).toFixed(1)
+  if (avgIops.value !== '--' && activeTestConfig.value) {
+    // Use the same rounded IOPS shown in the table so users can verify BW = IOPS x BS.
+    avgBw.value = bandwidthFromIops(avgIops.value, activeTestConfig.value.bs).toFixed(1)
   }
 
   if (chartData.lat.length > 0) {
@@ -1255,7 +1268,7 @@ const finishTest = (status = 'completed') => {
 
   addTerminalLine(lineType, '='.repeat(50))
   addTerminalLine(lineType, `${statusText}!`)
-  addTerminalLine(lineType, `平均 IOPS: ${avgIops.value}, 平均带宽: ${avgBw.value} MB/s, 平均延迟: ${avgLat.value} ms`)
+  addTerminalLine(lineType, `平均 IOPS: ${avgIops.value}, 平均带宽: ${avgBw.value} MiB/s, 平均延迟: ${avgLat.value} ms`)
   if (mixStatsMode.value) {
     addTerminalLine(lineType, `混合读写拆分: 读 IOPS ${avgReadIops.value}, 写 IOPS ${avgWriteIops.value}, 读带宽 ${avgReadBw.value} MB/s, 写带宽 ${avgWriteBw.value} MB/s`)
   }
