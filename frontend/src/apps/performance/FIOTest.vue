@@ -336,6 +336,36 @@
             <code>{{ displayFioCommand }}</code>
           </div>
         </div>
+
+        <div class="result-section">
+          <div class="result-header">
+            <div>
+              <h2 class="result-title">测试结果</h2>
+              <p>所有测试节点的汇总性能</p>
+            </div>
+            <button v-if="hasTestResult" class="btn btn-compact" @click="copyTestResult">复制结果</button>
+          </div>
+          <div class="result-grid">
+            <div class="result-metric">
+              <span>总 IOPS</span>
+              <strong>{{ resultIops }}</strong>
+              <small>IOPS</small>
+            </div>
+            <div class="result-metric">
+              <span>平均延迟</span>
+              <strong>{{ resultLat }}</strong>
+              <small>ms</small>
+            </div>
+            <div class="result-metric">
+              <span>总带宽</span>
+              <strong>{{ resultBw }}</strong>
+              <small>MB/s</small>
+            </div>
+          </div>
+          <div v-if="mixStatsMode && hasTestResult" class="mixed-result-detail">
+            读：{{ avgReadIops }} IOPS / {{ avgReadBw }} MB/s　写：{{ avgWriteIops }} IOPS / {{ avgWriteBw }} MB/s
+          </div>
+        </div>
       </div>
     </div>
 
@@ -473,6 +503,14 @@ const progressPercent = computed(() => {
   return Math.min(100, (elapsedSeconds.value / params.runtime) * 100)
 })
 
+const hasTestResult = computed(() => chartData.iops.length > 0)
+const resultIops = computed(() => hasTestResult.value ? (avgIops.value !== '--' ? avgIops.value : currentStats.iops.toFixed(0)) : '--')
+const resultBw = computed(() => hasTestResult.value ? (avgBw.value !== '--' ? avgBw.value : currentStats.bw.toFixed(1)) : '--')
+const resultLat = computed(() => hasTestResult.value ? (avgLat.value !== '--' ? avgLat.value : currentStats.lat.toFixed(2)) : '--')
+const testResultText = computed(() => (
+  `FIO 测试结果：总 IOPS ${resultIops.value}，平均延迟 ${resultLat.value} ms，总带宽 ${resultBw.value} MB/s`
+))
+
 const parseIPRange = (text) => {
   const ips = []
   text.split('\n').forEach(line => {
@@ -583,6 +621,20 @@ const displayFioCommand = computed(() => {
 })
 
 const copyDisplayCommand = () => copyText(displayFioCommand.value)
+
+const copyTestResult = async () => {
+  try {
+    await navigator.clipboard.writeText(testResultText.value)
+  } catch (error) {
+    const textarea = document.createElement('textarea')
+    textarea.value = testResultText.value
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+  showNotification('测试结果已复制', 'success')
+}
 
 const clearOutput = () => {
   if (activeHostTab.value && hostTerminals.value[activeHostTab.value]) {
@@ -1323,6 +1375,16 @@ onMounted(() => {
 .command-host { color: #8bdbff; font-size: 12px; font-weight: 700; }
 .command-copy { border: 0; border-radius: 5px; padding: 3px 9px; color: white; background: #6B5DD3; cursor: pointer; font-size: 11px; }
 .command-item code { display: block; color: #d7f9df; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.result-section { background: rgba(255, 255, 255, 0.95); border-radius: 12px; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); min-width: 0; }
+.result-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.result-title { margin: 0 0 4px; color: #302944; font-size: 18px; }
+.result-header p { margin: 0; color: #8a8395; font-size: 12px; }
+.result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.result-metric { position: relative; min-height: 108px; padding: 18px; border-radius: 10px; background: linear-gradient(135deg, #f7f5ff, #fff); border-left: 4px solid #6b5dd3; display: flex; flex-direction: column; justify-content: center; }
+.result-metric span { color: #777083; font-size: 13px; }
+.result-metric strong { margin-top: 6px; color: #392f64; font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.result-metric small { position: absolute; right: 16px; bottom: 15px; color: #9a94a5; }
+.mixed-result-detail { margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: #f7f5ff; color: #5d536d; font-size: 13px; }
 .notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 9999; animation: slideIn 0.3s ease; }
 .notification.success { background: #4CAF50; }
 .notification.error { background: #f44336; }
@@ -1334,5 +1396,6 @@ onMounted(() => {
   .top-row, .middle-row, .summary-cards { grid-template-columns: 1fr; }
   .form-row, .params-grid, .summary-cards { grid-template-columns: 1fr; }
   .test-type-grid { grid-template-columns: repeat(2, 1fr); }
+  .result-grid { grid-template-columns: 1fr; }
 }
 </style>
